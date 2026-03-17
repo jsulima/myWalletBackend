@@ -59,6 +59,7 @@ model Transaction {
   id           String        @id @default(uuid())
   walletId     String
   categoryId   String
+  transferId   String?       // Optional: linked to a transfer
   amount       Float
   type         TransactionType
   date         DateTime      @default(now())
@@ -68,6 +69,22 @@ model Transaction {
 
   wallet       Wallet        @relation(fields: [walletId], references: [id], onDelete: Cascade)
   category     Category      @relation(fields: [categoryId], references: [id], onDelete: Cascade)
+  transfer     Transfer?     @relation(fields: [transferId], references: [id], onDelete: Cascade)
+}
+
+model Transfer {
+  id               String        @id @default(uuid())
+  sourceWalletId   String
+  targetWalletId   String
+  sourceAmount     Float
+  targetAmount     Float
+  exchangeRate     Float         @default(1.0)
+  description      String?
+  date             DateTime      @default(now())
+  createdAt        DateTime      @default(now())
+  updatedAt        DateTime      @updatedAt
+
+  transactions     Transaction[]
 }
 
 model Budget {

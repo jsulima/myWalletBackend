@@ -15,6 +15,7 @@ import transactionRoutes from './routes/transactionRoutes';
 import budgetRoutes from './routes/budgetRoutes';
 import savingRoutes from './routes/savingRoutes';
 import creditRoutes from './routes/creditRoutes';
+import transferRoutes from './routes/transferRoutes';
 
 // Middlewares
 app.use(helmet());
@@ -29,6 +30,7 @@ app.use('/api/transactions', transactionRoutes);
 app.use('/api/budgets', budgetRoutes);
 app.use('/api/savings', savingRoutes);
 app.use('/api/credits', creditRoutes);
+app.use('/api/transfers', transferRoutes);
 
 // Basic route
 app.get('/health', (req, res) => {
