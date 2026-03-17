@@ -23,6 +23,7 @@
   "homepage": "https://github.com/jsulima/myWalletBackend#readme",
   "dependencies": {
     "@prisma/client": "^5.22.0",
+    "axios": "^1.13.6",
     "bcrypt": "^6.0.0",
     "cors": "^2.8.6",
     "dotenv": "^17.3.1",
