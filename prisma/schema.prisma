@@ -1,0 +1,116 @@
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+model User {
+  id           String        @id @default(uuid())
+  email        String        @unique
+  passwordHash String
+  name         String?
+  createdAt    DateTime      @default(now())
+  updatedAt    DateTime      @updatedAt
+  
+  wallets      Wallet[]
+  categories   Category[]
+  budgets      Budget[]
+  savingGoals  SavingGoal[]
+  credits      Credit[]
+}
+
+model Wallet {
+  id           String        @id @default(uuid())
+  userId       String
+  name         String
+  balance      Float         @default(0)
+  currency     String        @default("USD")
+  createdAt    DateTime      @default(now())
+  updatedAt    DateTime      @updatedAt
+
+  user         User          @relation(fields: [userId], references: [id], onDelete: Cascade)
+  transactions Transaction[]
+}
+
+enum TransactionType {
+  INCOME
+  EXPENSE
+}
+
+model Category {
+  id           String        @id @default(uuid())
+  name         String
+  type         TransactionType
+  color        String        @default("#6b7280")
+  icon         String        @default("Tag")
+  userId       String?       // Optional: null means it's a default/system category
+  createdAt    DateTime      @default(now())
+  updatedAt    DateTime      @updatedAt
+
+  user         User?         @relation(fields: [userId], references: [id], onDelete: Cascade)
+  transactions Transaction[]
+  budgets      Budget[]
+}
+
+model Transaction {
+  id           String        @id @default(uuid())
+  walletId     String
+  categoryId   String
+  amount       Float
+  type         TransactionType
+  date         DateTime      @default(now())
+  description  String?
+  createdAt    DateTime      @default(now())
+  updatedAt    DateTime      @updatedAt
+
+  wallet       Wallet        @relation(fields: [walletId], references: [id], onDelete: Cascade)
+  category     Category      @relation(fields: [categoryId], references: [id], onDelete: Cascade)
+}
+
+model Budget {
+  id           String        @id @default(uuid())
+  userId       String
+  categoryId   String
+  limit        Float
+  month        Int
+  year         Int
+  createdAt    DateTime      @default(now())
+  updatedAt    DateTime      @updatedAt
+
+  user         User          @relation(fields: [userId], references: [id], onDelete: Cascade)
+  category     Category      @relation(fields: [categoryId], references: [id], onDelete: Cascade)
+
+  @@unique([userId, categoryId, month, year])
+}
+
+model SavingGoal {
+  id            String        @id @default(uuid())
+  userId        String
+  name          String
+  targetAmount  Float
+  currentAmount Float         @default(0)
+  deadline      DateTime?
+  createdAt     DateTime      @default(now())
+  updatedAt     DateTime      @updatedAt
+
+  user          User          @relation(fields: [userId], references: [id], onDelete: Cascade)
+}
+
+model Credit {
+  id              String        @id @default(uuid())
+  userId          String
+  name            String
+  totalAmount     Float
+  paidAmount      Float         @default(0)
+  remainingAmount Float         @default(0)
+  interestRate    Float?        @default(0)
+  monthlyPayment  Float         @default(0)
+  dueDate         DateTime?
+  createdAt       DateTime      @default(now())
+  updatedAt       DateTime      @updatedAt
+
+  user            User          @relation(fields: [userId], references: [id], onDelete: Cascade)
+}
