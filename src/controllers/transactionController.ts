@@ -5,9 +5,11 @@ import { AuthRequest } from '../middlewares/authMiddleware';
 
 const transactionSchema = z.object({
   walletId: z.string().uuid(),
+  targetWalletId: z.string().uuid().optional(),
   categoryId: z.string().uuid(),
   amount: z.number().positive(),
-  type: z.enum(['INCOME', 'EXPENSE']),
+  targetAmount: z.number().positive().optional(),
+  type: z.enum(['INCOME', 'EXPENSE', 'TRANSFER']),
   date: z.string().datetime().optional(), // ISO string
   description: z.string().optional(),
 });
@@ -27,11 +29,22 @@ export const getTransactions = async (req: AuthRequest, res: Response) => {
 
     const transactions = await prisma.transaction.findMany({
       where: walletId 
-        ? { walletId: String(walletId) }
-        : { wallet: { userId: req.userId } },
+        ? { 
+            OR: [
+              { walletId: String(walletId) },
+              { targetWalletId: String(walletId) }
+            ]
+          }
+        : { 
+            OR: [
+              { wallet: { userId: req.userId } },
+              { targetWallet: { userId: req.userId } }
+            ]
+          },
       include: {
         category: true,
         wallet: true,
+        targetWallet: true,
       },
       orderBy: { date: 'desc' },
     });
@@ -52,6 +65,18 @@ export const createTransaction = async (req: AuthRequest, res: Response) => {
       return;
     }
 
+    if (data.type === 'TRANSFER') {
+      if (!data.targetWalletId || !data.targetAmount) {
+        res.status(400).json({ error: 'Target wallet and target amount are required for transfers' });
+        return;
+      }
+      const targetWallet = await prisma.wallet.findUnique({ where: { id: data.targetWalletId } });
+      if (!targetWallet || targetWallet.userId !== req.userId) {
+        res.status(403).json({ error: 'Access denied to target wallet' });
+        return;
+      }
+    }
+
     // Use Prisma transaction to ensure atomicity
     const result = await prisma.$transaction(async (tx: any) => {
       const transaction = await tx.transaction.create({
@@ -61,12 +86,24 @@ export const createTransaction = async (req: AuthRequest, res: Response) => {
         },
       });
 
-      const balanceChange = data.type === 'INCOME' ? data.amount : -data.amount;
-      
-      await tx.wallet.update({
-        where: { id: data.walletId },
-        data: { balance: { increment: balanceChange } },
-      });
+      if (data.type === 'TRANSFER') {
+        // Source wallet (Expense side)
+        await tx.wallet.update({
+          where: { id: data.walletId },
+          data: { balance: { decrement: data.amount } },
+        });
+        // Target wallet (Income side)
+        await tx.wallet.update({
+          where: { id: data.targetWalletId },
+          data: { balance: { increment: data.targetAmount } },
+        });
+      } else {
+        const balanceChange = data.type === 'INCOME' ? data.amount : -data.amount;
+        await tx.wallet.update({
+          where: { id: data.walletId },
+          data: { balance: { increment: balanceChange } },
+        });
+      }
 
       return transaction;
     });
@@ -98,12 +135,26 @@ export const deleteTransaction = async (req: AuthRequest, res: Response) => {
     await prisma.$transaction(async (tx: any) => {
       await tx.transaction.delete({ where: { id } });
 
-      const balanceRevert = transaction.type === 'INCOME' ? -transaction.amount : transaction.amount;
-      
-      await tx.wallet.update({
-        where: { id: transaction.walletId },
-        data: { balance: { increment: balanceRevert } },
-      });
+      if (transaction.type === 'TRANSFER') {
+        // Revert source (was decrement, so increment back)
+        await tx.wallet.update({
+          where: { id: transaction.walletId },
+          data: { balance: { increment: transaction.amount } },
+        });
+        // Revert target (was increment, so decrement back)
+        if (transaction.targetWalletId) {
+          await tx.wallet.update({
+            where: { id: transaction.targetWalletId },
+            data: { balance: { decrement: transaction.targetAmount } },
+          });
+        }
+      } else {
+        const balanceRevert = transaction.type === 'INCOME' ? -transaction.amount : transaction.amount;
+        await tx.wallet.update({
+          where: { id: transaction.walletId },
+          data: { balance: { increment: balanceRevert } },
+        });
+      }
     });
 
     res.json({ message: 'Transaction deleted successfully' });
@@ -142,110 +193,47 @@ export const updateTransaction = async (req: AuthRequest, res: Response) => {
     }
 
     const result = await prisma.$transaction(async (tx: any) => {
-      // 1. If it's a transfer, handle both sides
-      console.log(`Checking if transaction is a transfer. TransferId: ${oldTransaction.transferId}`);
-      if (oldTransaction.transferId) {
-        const transfer = await tx.transfer.findUnique({
-          where: { id: oldTransaction.transferId },
-          include: { transactions: true },
+      // 1. Reverse old transaction effect
+      if (oldTransaction.type === 'TRANSFER') {
+        await tx.wallet.update({
+          where: { id: oldTransaction.walletId },
+          data: { balance: { increment: oldTransaction.amount } },
         });
-
-        if (transfer) {
-          const otherTransaction = transfer.transactions.find((t: any) => t.id !== oldTransaction.id);
-          console.log(`Transfer found. Other transaction ID: ${otherTransaction?.id}`);
-          
-          if (otherTransaction) {
-            // Reverse old balances for both transactions
-            const oldRevert = oldTransaction.type === 'INCOME' ? -oldTransaction.amount : oldTransaction.amount;
-            await tx.wallet.update({
-              where: { id: oldTransaction.walletId },
-              data: { balance: { increment: oldRevert } },
-            });
-
-            const otherOldRevert = otherTransaction.type === 'INCOME' ? -otherTransaction.amount : otherTransaction.amount;
-            await tx.wallet.update({
-              where: { id: otherTransaction.walletId },
-              data: { balance: { increment: otherOldRevert } },
-            });
-
-            // Calculate new values for both sides
-            let newSourceAmount = transfer.sourceAmount;
-            let newTargetAmount = transfer.targetAmount;
-
-            if (oldTransaction.type === 'EXPENSE') {
-              newSourceAmount = data.amount;
-              newTargetAmount = data.amount * transfer.exchangeRate;
-            } else {
-              newTargetAmount = data.amount;
-              newSourceAmount = data.amount / transfer.exchangeRate;
-            }
-            
-            console.log(`Updating transfer amounts: Source=${newSourceAmount}, Target=${newTargetAmount}`);
-
-            // Update Transfer record
-            await tx.transfer.update({
-              where: { id: transfer.id },
-              data: {
-                sourceAmount: newSourceAmount,
-                targetAmount: newTargetAmount,
-                description: data.description,
-                date: data.date ? new Date(data.date) : undefined,
-                sourceWalletId: oldTransaction.type === 'EXPENSE' ? data.walletId : undefined,
-                targetWalletId: oldTransaction.type === 'INCOME' ? data.walletId : undefined,
-              },
-            });
-
-            // Update both Transaction records
-            const updated = await tx.transaction.update({
-              where: { id },
-              data: {
-                ...data,
-                date: data.date ? new Date(data.date) : undefined,
-              },
-            });
-
-            await tx.transaction.update({
-              where: { id: otherTransaction.id },
-              data: {
-                amount: oldTransaction.type === 'EXPENSE' ? newTargetAmount : newSourceAmount,
-                description: data.description,
-                date: data.date ? new Date(data.date) : undefined,
-                categoryId: data.categoryId, // Sync category too
-              },
-            });
-
-            // Apply new balances
-            await tx.wallet.update({
-              where: { id: data.walletId },
-              data: { balance: { increment: data.type === 'INCOME' ? data.amount : -data.amount } },
-            });
-
-            const otherNewAmount = oldTransaction.type === 'EXPENSE' ? newTargetAmount : newSourceAmount;
-            await tx.wallet.update({
-              where: { id: otherTransaction.walletId },
-              data: { balance: { increment: otherTransaction.type === 'INCOME' ? otherNewAmount : -otherNewAmount } },
-            });
-
-            console.log('Transfer atomic update completed');
-            return updated;
-          }
+        if (oldTransaction.targetWalletId) {
+          await tx.wallet.update({
+            where: { id: oldTransaction.targetWalletId },
+            data: { balance: { decrement: oldTransaction.targetAmount } },
+          });
         }
+      } else {
+        const oldBalanceRevert = oldTransaction.type === 'INCOME' ? -oldTransaction.amount : oldTransaction.amount;
+        await tx.wallet.update({
+          where: { id: oldTransaction.walletId },
+          data: { balance: { increment: oldBalanceRevert } },
+        });
       }
 
-      // Regular transaction update logic (fallback for non-transfer transactions)
-      // 1. Reverse old transaction effect
-      const oldBalanceRevert = oldTransaction.type === 'INCOME' ? -oldTransaction.amount : oldTransaction.amount;
-      await tx.wallet.update({
-        where: { id: oldTransaction.walletId },
-        data: { balance: { increment: oldBalanceRevert } },
-      });
-
       // 2. Apply new transaction effect
-      const newBalanceChange = data.type === 'INCOME' ? data.amount : -data.amount;
-      await tx.wallet.update({
-        where: { id: data.walletId },
-        data: { balance: { increment: newBalanceChange } },
-      });
+      if (data.type === 'TRANSFER') {
+        // Source wallet (Expense side)
+        await tx.wallet.update({
+          where: { id: data.walletId },
+          data: { balance: { decrement: data.amount } },
+        });
+        // Target wallet (Income side)
+        if (data.targetWalletId && data.targetAmount) {
+          await tx.wallet.update({
+            where: { id: data.targetWalletId },
+            data: { balance: { increment: data.targetAmount } },
+          });
+        }
+      } else {
+        const newBalanceChange = data.type === 'INCOME' ? data.amount : -data.amount;
+        await tx.wallet.update({
+          where: { id: data.walletId },
+          data: { balance: { increment: newBalanceChange } },
+        });
+      }
 
       // 3. Update transaction record
       const updated = await tx.transaction.update({

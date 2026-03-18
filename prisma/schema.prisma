@@ -31,13 +31,15 @@ model Wallet {
   createdAt    DateTime      @default(now())
   updatedAt    DateTime      @updatedAt
 
-  user         User          @relation(fields: [userId], references: [id], onDelete: Cascade)
-  transactions Transaction[]
+  user               User          @relation(fields: [userId], references: [id], onDelete: Cascade)
+  transactions       Transaction[] @relation("SourceWallet")
+  targetTransactions Transaction[] @relation("TargetWallet")
 }
 
 enum TransactionType {
   INCOME
   EXPENSE
+  TRANSFER
 }
 
 model Category {
@@ -56,20 +58,23 @@ model Category {
 }
 
 model Transaction {
-  id           String        @id @default(uuid())
-  walletId     String
-  categoryId   String
-  transferId   String?       // Optional: linked to a transfer
-  amount       Float
-  type         TransactionType
-  date         DateTime      @default(now())
-  description  String?
-  createdAt    DateTime      @default(now())
-  updatedAt    DateTime      @updatedAt
+  id              String          @id @default(uuid())
+  walletId        String          // Source wallet
+  targetWalletId  String?         // Target wallet (for TRANSFER)
+  categoryId      String
+  transferId      String?         // Kept for backward compatibility during migration
+  amount          Float           // Source amount
+  targetAmount    Float?          // Target amount (for TRANSFER)
+  type            TransactionType
+  date            DateTime        @default(now())
+  description     String?
+  createdAt       DateTime        @default(now())
+  updatedAt       DateTime        @updatedAt
 
-  wallet       Wallet        @relation(fields: [walletId], references: [id], onDelete: Cascade)
-  category     Category      @relation(fields: [categoryId], references: [id], onDelete: Cascade)
-  transfer     Transfer?     @relation(fields: [transferId], references: [id], onDelete: Cascade)
+  wallet          Wallet          @relation("SourceWallet", fields: [walletId], references: [id], onDelete: Cascade)
+  targetWallet    Wallet?         @relation("TargetWallet", fields: [targetWalletId], references: [id], onDelete: SetNull)
+  category        Category        @relation(fields: [categoryId], references: [id], onDelete: Cascade)
+  transfer        Transfer?       @relation(fields: [transferId], references: [id], onDelete: Cascade)
 }
 
 model Transfer {
