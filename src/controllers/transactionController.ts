@@ -111,3 +111,62 @@ export const deleteTransaction = async (req: AuthRequest, res: Response) => {
     res.status(500).json({ error: 'Failed to delete transaction' });
   }
 };
+
+export const updateTransaction = async (req: AuthRequest, res: Response) => {
+  try {
+    const id = String(req.params.id);
+    const data = transactionSchema.parse(req.body);
+
+    const oldTransaction = await prisma.transaction.findUnique({
+      where: { id },
+      include: { wallet: true },
+    });
+
+    if (!oldTransaction || (oldTransaction as any).wallet.userId !== req.userId) {
+      res.status(404).json({ error: 'Transaction not found or access denied' });
+      return;
+    }
+
+    // Verify ownership of the new wallet
+    const newWallet = await prisma.wallet.findUnique({ where: { id: data.walletId } });
+    if (!newWallet || newWallet.userId !== req.userId) {
+      res.status(403).json({ error: 'Access denied to the new wallet' });
+      return;
+    }
+
+    const result = await prisma.$transaction(async (tx: any) => {
+      // 1. Reverse old transaction effect
+      const oldBalanceRevert = oldTransaction.type === 'INCOME' ? -oldTransaction.amount : oldTransaction.amount;
+      await tx.wallet.update({
+        where: { id: oldTransaction.walletId },
+        data: { balance: { increment: oldBalanceRevert } },
+      });
+
+      // 2. Apply new transaction effect
+      const newBalanceChange = data.type === 'INCOME' ? data.amount : -data.amount;
+      await tx.wallet.update({
+        where: { id: data.walletId },
+        data: { balance: { increment: newBalanceChange } },
+      });
+
+      // 3. Update transaction record
+      const updated = await tx.transaction.update({
+        where: { id },
+        data: {
+          ...data,
+          date: data.date ? new Date(data.date) : undefined,
+        },
+      });
+
+      return updated;
+    });
+
+    res.json(result);
+  } catch (error) {
+    if (error instanceof z.ZodError) {
+      res.status(400).json({ error: error.issues });
+    } else {
+      res.status(500).json({ error: 'Failed to update transaction' });
+    }
+  }
+};
