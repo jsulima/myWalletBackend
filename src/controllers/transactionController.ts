@@ -115,12 +115,19 @@ export const deleteTransaction = async (req: AuthRequest, res: Response) => {
 export const updateTransaction = async (req: AuthRequest, res: Response) => {
   try {
     const id = String(req.params.id);
+    console.log(`Updating transaction ${id} for user ${req.userId}`);
     const data = transactionSchema.parse(req.body);
 
     const oldTransaction = await prisma.transaction.findUnique({
       where: { id },
       include: { wallet: true },
     });
+
+    if (!oldTransaction) {
+      console.log(`Transaction ${id} not found`);
+    } else if ((oldTransaction as any).wallet.userId !== req.userId) {
+      console.log(`Access denied for transaction ${id}. Owner: ${(oldTransaction as any).wallet.userId}, Req: ${req.userId}`);
+    }
 
     if (!oldTransaction || (oldTransaction as any).wallet.userId !== req.userId) {
       res.status(404).json({ error: 'Transaction not found or access denied' });
