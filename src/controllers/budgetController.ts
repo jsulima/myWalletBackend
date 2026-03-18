@@ -6,8 +6,16 @@ import { AuthRequest } from '../middlewares/authMiddleware';
 const budgetSchema = z.object({
   categoryId: z.string().uuid(),
   limit: z.number().positive(),
-  month: z.number().min(1).max(12),
-  year: z.number().min(2000),
+  startDate: z.string().datetime(),
+  endDate: z.string().datetime(),
+  status: z.enum(['DRAFT', 'ACTIVE', 'FINISHED']).optional(),
+});
+
+const updateBudgetSchema = z.object({
+  limit: z.number().positive().optional(),
+  startDate: z.string().datetime().optional(),
+  endDate: z.string().datetime().optional(),
+  status: z.enum(['DRAFT', 'ACTIVE', 'FINISHED']).optional(),
 });
 
 export const getBudgets = async (req: AuthRequest, res: Response) => {
@@ -15,6 +23,7 @@ export const getBudgets = async (req: AuthRequest, res: Response) => {
     const budgets = await prisma.budget.findMany({
       where: { userId: req.userId },
       include: { category: true },
+      orderBy: { startDate: 'desc' },
     });
     res.json(budgets);
   } catch (error) {
@@ -27,7 +36,11 @@ export const createBudget = async (req: AuthRequest, res: Response) => {
     const data = budgetSchema.parse(req.body);
     const budget = await prisma.budget.create({
       data: {
-        ...data,
+        categoryId: data.categoryId,
+        limit: data.limit,
+        startDate: new Date(data.startDate),
+        endDate: new Date(data.endDate),
+        status: data.status || 'ACTIVE',
         userId: req.userId!,
       },
     });
@@ -36,7 +49,39 @@ export const createBudget = async (req: AuthRequest, res: Response) => {
     if (error instanceof z.ZodError) {
       res.status(400).json({ error: error.issues });
     } else {
-      res.status(500).json({ error: 'Failed to create budget. Maybe already exists for this month/year?' });
+      console.error('Create Budget Error:', error);
+      res.status(500).json({ error: 'Failed to create budget' });
+    }
+  }
+};
+
+export const updateBudget = async (req: AuthRequest, res: Response) => {
+  try {
+    const id = req.params.id as string;
+    const data = updateBudgetSchema.parse(req.body);
+
+    const existingBudget = await prisma.budget.findUnique({ where: { id } });
+    if (!existingBudget || existingBudget.userId !== req.userId) {
+      res.status(404).json({ error: 'Budget not found' });
+      return;
+    }
+
+    const budget = await prisma.budget.update({
+      where: { id },
+      data: {
+        limit: data.limit,
+        startDate: data.startDate ? new Date(data.startDate) : undefined,
+        endDate: data.endDate ? new Date(data.endDate) : undefined,
+        status: data.status,
+      },
+    });
+
+    res.json(budget);
+  } catch (error) {
+    if (error instanceof z.ZodError) {
+      res.status(400).json({ error: error.issues });
+    } else {
+      res.status(500).json({ error: 'Failed to update budget' });
     }
   }
 };

@@ -42,6 +42,12 @@ enum TransactionType {
   TRANSFER
 }
 
+enum BudgetStatus {
+  DRAFT
+  ACTIVE
+  FINISHED
+}
+
 model Category {
   id           String        @id @default(uuid())
   name         String
@@ -97,15 +103,16 @@ model Budget {
   userId       String
   categoryId   String
   limit        Float
-  month        Int
-  year         Int
+  startDate    DateTime
+  endDate      DateTime
+  status       BudgetStatus  @default(ACTIVE)
   createdAt    DateTime      @default(now())
   updatedAt    DateTime      @updatedAt
 
   user         User          @relation(fields: [userId], references: [id], onDelete: Cascade)
   category     Category      @relation(fields: [categoryId], references: [id], onDelete: Cascade)
 
-  @@unique([userId, categoryId, month, year])
+  @@index([userId, startDate, endDate])
 }
 
 model SavingGoal {
