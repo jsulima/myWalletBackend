@@ -142,6 +142,92 @@ export const updateTransaction = async (req: AuthRequest, res: Response) => {
     }
 
     const result = await prisma.$transaction(async (tx: any) => {
+      // 1. If it's a transfer, handle both sides
+      if (oldTransaction.transferId) {
+        const transfer = await tx.transfer.findUnique({
+          where: { id: oldTransaction.transferId },
+          include: { transactions: true },
+        });
+
+        if (transfer) {
+          const otherTransaction = transfer.transactions.find((t: any) => t.id !== oldTransaction.id);
+          
+          if (otherTransaction) {
+            // Reverse old balances for both transactions
+            const oldRevert = oldTransaction.type === 'INCOME' ? -oldTransaction.amount : oldTransaction.amount;
+            await tx.wallet.update({
+              where: { id: oldTransaction.walletId },
+              data: { balance: { increment: oldRevert } },
+            });
+
+            const otherOldRevert = otherTransaction.type === 'INCOME' ? -otherTransaction.amount : otherTransaction.amount;
+            await tx.wallet.update({
+              where: { id: otherTransaction.walletId },
+              data: { balance: { increment: otherOldRevert } },
+            });
+
+            // Calculate new values for both sides
+            // If user edited the source amount (expense side)
+            let newSourceAmount = transfer.sourceAmount;
+            let newTargetAmount = transfer.targetAmount;
+
+            if (oldTransaction.type === 'EXPENSE') {
+              newSourceAmount = data.amount;
+              newTargetAmount = data.amount * transfer.exchangeRate;
+            } else {
+              newTargetAmount = data.amount;
+              newSourceAmount = data.amount / transfer.exchangeRate;
+            }
+
+            // Update Transfer record
+            await tx.transfer.update({
+              where: { id: transfer.id },
+              data: {
+                sourceAmount: newSourceAmount,
+                targetAmount: newTargetAmount,
+                description: data.description,
+                date: data.date ? new Date(data.date) : undefined,
+                sourceWalletId: oldTransaction.type === 'EXPENSE' ? data.walletId : undefined,
+                targetWalletId: oldTransaction.type === 'INCOME' ? data.walletId : undefined,
+              },
+            });
+
+            // Update both Transaction records
+            const updated = await tx.transaction.update({
+              where: { id },
+              data: {
+                ...data,
+                date: data.date ? new Date(data.date) : undefined,
+              },
+            });
+
+            await tx.transaction.update({
+              where: { id: otherTransaction.id },
+              data: {
+                amount: oldTransaction.type === 'EXPENSE' ? newTargetAmount : newSourceAmount,
+                description: data.description,
+                date: data.date ? new Date(data.date) : undefined,
+              },
+            });
+
+            // Apply new balances
+            await tx.wallet.update({
+              where: { id: data.walletId },
+              data: { balance: { increment: data.type === 'INCOME' ? data.amount : -data.amount } },
+            });
+
+            const otherNewAmount = oldTransaction.type === 'EXPENSE' ? newTargetAmount : newSourceAmount;
+            await tx.wallet.update({
+              where: { id: otherTransaction.walletId },
+              data: { balance: { increment: otherTransaction.type === 'INCOME' ? otherNewAmount : -otherNewAmount } },
+            });
+
+            return updated;
+          }
+        }
+      }
+
+      // Regular transaction update logic (fallback for non-transfer transactions)
       // 1. Reverse old transaction effect
       const oldBalanceRevert = oldTransaction.type === 'INCOME' ? -oldTransaction.amount : oldTransaction.amount;
       await tx.wallet.update({
