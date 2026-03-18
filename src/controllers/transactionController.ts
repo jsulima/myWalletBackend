@@ -41,15 +41,40 @@ export const getTransactions = async (req: AuthRequest, res: Response) => {
               { targetWallet: { userId: req.userId } }
             ]
           },
-      include: {
+      select: {
+        id: true,
+        walletId: true,
+        targetWalletId: true,
+        categoryId: true,
+        transferId: true,
+        amount: true,
+        targetAmount: true,
+        type: true,
+        date: true,
+        description: true,
         category: true,
-        wallet: true,
-        targetWallet: true,
+        wallet: {
+          select: {
+            id: true,
+            name: true,
+            currency: true,
+            balance: true,
+          }
+        },
+        targetWallet: {
+          select: {
+            id: true,
+            name: true,
+            currency: true,
+            balance: true,
+          }
+        },
       },
       orderBy: { date: 'desc' },
     });
     res.json(transactions);
   } catch (error) {
+    console.error('Error in getTransactions:', error);
     res.status(500).json({ error: 'Failed to fetch transactions' });
   }
 };
