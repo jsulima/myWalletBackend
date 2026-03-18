@@ -38,7 +38,7 @@ export const getTransactions = async (req: AuthRequest, res: Response) => {
         : { 
             OR: [
               { wallet: { userId: req.userId } },
-              { targetWallet: { userId: req.userId } }
+              { AND: [{ targetWalletId: { not: null } }, { targetWallet: { userId: req.userId } }] }
             ]
           },
       select: {
@@ -73,7 +73,7 @@ export const getTransactions = async (req: AuthRequest, res: Response) => {
       orderBy: { date: 'desc' },
     });
     res.json(transactions);
-  } catch (error) {
+  } catch (error: any) {
     console.error('Error in getTransactions:', error);
     res.status(500).json({ error: 'Failed to fetch transactions' });
   }
