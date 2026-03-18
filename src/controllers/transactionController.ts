@@ -143,6 +143,7 @@ export const updateTransaction = async (req: AuthRequest, res: Response) => {
 
     const result = await prisma.$transaction(async (tx: any) => {
       // 1. If it's a transfer, handle both sides
+      console.log(`Checking if transaction is a transfer. TransferId: ${oldTransaction.transferId}`);
       if (oldTransaction.transferId) {
         const transfer = await tx.transfer.findUnique({
           where: { id: oldTransaction.transferId },
@@ -151,6 +152,7 @@ export const updateTransaction = async (req: AuthRequest, res: Response) => {
 
         if (transfer) {
           const otherTransaction = transfer.transactions.find((t: any) => t.id !== oldTransaction.id);
+          console.log(`Transfer found. Other transaction ID: ${otherTransaction?.id}`);
           
           if (otherTransaction) {
             // Reverse old balances for both transactions
@@ -167,7 +169,6 @@ export const updateTransaction = async (req: AuthRequest, res: Response) => {
             });
 
             // Calculate new values for both sides
-            // If user edited the source amount (expense side)
             let newSourceAmount = transfer.sourceAmount;
             let newTargetAmount = transfer.targetAmount;
 
@@ -178,6 +179,8 @@ export const updateTransaction = async (req: AuthRequest, res: Response) => {
               newTargetAmount = data.amount;
               newSourceAmount = data.amount / transfer.exchangeRate;
             }
+            
+            console.log(`Updating transfer amounts: Source=${newSourceAmount}, Target=${newTargetAmount}`);
 
             // Update Transfer record
             await tx.transfer.update({
@@ -207,6 +210,7 @@ export const updateTransaction = async (req: AuthRequest, res: Response) => {
                 amount: oldTransaction.type === 'EXPENSE' ? newTargetAmount : newSourceAmount,
                 description: data.description,
                 date: data.date ? new Date(data.date) : undefined,
+                categoryId: data.categoryId, // Sync category too
               },
             });
 
@@ -222,6 +226,7 @@ export const updateTransaction = async (req: AuthRequest, res: Response) => {
               data: { balance: { increment: otherTransaction.type === 'INCOME' ? otherNewAmount : -otherNewAmount } },
             });
 
+            console.log('Transfer atomic update completed');
             return updated;
           }
         }
