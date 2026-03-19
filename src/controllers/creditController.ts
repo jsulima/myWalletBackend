@@ -79,3 +79,71 @@ export const deleteCredit = async (req: AuthRequest, res: Response) => {
     res.status(500).json({ error: 'Failed' });
   }
 };
+
+const payCreditSchema = z.object({
+  walletId: z.string().uuid(),
+  categoryId: z.string().uuid(),
+  amount: z.number().positive(),
+  date: z.string().datetime().optional(), // ISO string
+});
+
+export const payCredit = async (req: AuthRequest, res: Response) => {
+  try {
+    const id = String(req.params.id);
+    const data = payCreditSchema.parse(req.body);
+
+    const credit = await prisma.credit.findUnique({ where: { id } });
+    if (!credit || credit.userId !== req.userId) {
+      return res.status(404).json({ error: 'Credit not found' });
+    }
+
+    const wallet = await prisma.wallet.findUnique({ where: { id: data.walletId } });
+    if (!wallet || wallet.userId !== req.userId) {
+      return res.status(403).json({ error: 'Access denied to this wallet' });
+    }
+
+    const category = await prisma.category.findUnique({ where: { id: data.categoryId } });
+    if (!category || category.userId !== req.userId && category.userId !== null) {
+       return res.status(403).json({ error: 'Access denied to this category' });
+    }
+
+    const result = await prisma.$transaction(async (tx: any) => {
+      // 1. Decrement Wallet Balance
+      await tx.wallet.update({
+        where: { id: data.walletId },
+        data: { balance: { decrement: data.amount } },
+      });
+
+      // 2. Create Transaction
+      const transaction = await tx.transaction.create({
+        data: {
+          walletId: data.walletId,
+          categoryId: data.categoryId,
+          type: 'EXPENSE',
+          amount: data.amount,
+          description: `Credit Payment: ${credit.name}`,
+          date: data.date ? new Date(data.date) : new Date(),
+        },
+      });
+
+      // 3. Update Credit Balance
+      const updatedCredit = await tx.credit.update({
+        where: { id },
+        data: {
+          paidAmount: { increment: data.amount },
+          remainingAmount: { decrement: data.amount },
+        },
+      });
+
+      return { transaction, credit: updatedCredit };
+    });
+
+    res.json(result);
+  } catch (error) {
+    if (error instanceof z.ZodError) {
+      res.status(400).json({ error: error.issues });
+    } else {
+      res.status(500).json({ error: 'Failed to process payment' });
+    }
+  }
+};

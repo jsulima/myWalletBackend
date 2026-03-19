@@ -1,5 +1,5 @@
 import { Router } from 'express';
-import { getCredits, createCredit, updateCredit, deleteCredit } from '../controllers/creditController';
+import { getCredits, createCredit, updateCredit, deleteCredit, payCredit } from '../controllers/creditController';
 import { authenticate } from '../middlewares/authMiddleware';
 
 const router = Router();
@@ -10,5 +10,6 @@ router.get('/', getCredits);
 router.post('/', createCredit);
 router.put('/:id', updateCredit);
 router.delete('/:id', deleteCredit);
+router.post('/:id/pay', payCredit);
 
 export default router;
