@@ -19,10 +19,9 @@ export const getCategories = async (req: AuthRequest, res: Response) => {
           { userId: req.userId },
         ],
       },
-      orderBy: [
-        { userId: 'desc' }, // User categories first or nulls first, Prisma ordering allows doing this simply. Better to just sort by createdAt
-        { createdAt: 'desc' }
-      ]
+      orderBy: {
+        createdAt: 'asc',
+      },
     });
     res.json(categories);
   } catch (error) {
