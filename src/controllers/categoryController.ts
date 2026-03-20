@@ -54,7 +54,7 @@ export const createCategory = async (req: AuthRequest, res: Response) => {
 export const updateCategory = async (req: AuthRequest, res: Response) => {
   try {
     const id = String(req.params.id);
-    const { name, type } = categorySchema.partial().parse(req.body);
+    const { name, type, color, icon } = categorySchema.partial().parse(req.body);
 
     const category = await prisma.category.findUnique({ where: { id } });
     if (!category) {
@@ -69,7 +69,7 @@ export const updateCategory = async (req: AuthRequest, res: Response) => {
 
     const updated = await prisma.category.update({
       where: { id },
-      data: { name, type },
+      data: { name, type, color, icon },
     });
     res.json(updated);
   } catch (error) {
