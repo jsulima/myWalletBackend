@@ -10,6 +10,7 @@ const budgetSchema = z.object({
   endDate: z.string().datetime(),
   status: z.enum(['DRAFT', 'ACTIVE', 'FINISHED']).optional(),
   note: z.string().max(500).optional(),
+  currency: z.string().optional().default('USD'),
 });
 
 const updateBudgetSchema = z.object({
@@ -18,6 +19,7 @@ const updateBudgetSchema = z.object({
   endDate: z.string().datetime().optional(),
   status: z.enum(['DRAFT', 'ACTIVE', 'FINISHED']).optional(),
   note: z.string().max(500).optional(),
+  currency: z.string().optional(),
 });
 
 export const getBudgets = async (req: AuthRequest, res: Response) => {
@@ -45,6 +47,7 @@ export const createBudget = async (req: AuthRequest, res: Response) => {
         endDate: new Date(data.endDate),
         status: data.status || 'ACTIVE',
         note: data.note,
+        currency: data.currency,
         userId: req.userId!,
       },
     });
@@ -78,6 +81,7 @@ export const updateBudget = async (req: AuthRequest, res: Response) => {
         endDate: data.endDate ? new Date(data.endDate) : undefined,
         status: data.status,
         note: data.note,
+        currency: data.currency,
       },
     });
 

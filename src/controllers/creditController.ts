@@ -11,6 +11,7 @@ const creditSchema = z.object({
   interestRate: z.number().optional(),
   monthlyPayment: z.number().optional(),
   dueDate: z.string().datetime().optional(),
+  currency: z.string().optional().default('USD'),
 });
 
 export const getCredits = async (req: AuthRequest, res: Response) => {
@@ -35,6 +36,7 @@ export const createCredit = async (req: AuthRequest, res: Response) => {
         remainingAmount,
         interestRate: data.interestRate ?? 0,
         monthlyPayment: data.monthlyPayment ?? 0,
+        currency: data.currency,
         dueDate: data.dueDate ? new Date(data.dueDate) : undefined,
       },
     });
@@ -107,11 +109,23 @@ export const payCredit = async (req: AuthRequest, res: Response) => {
        return res.status(403).json({ error: 'Access denied to this category' });
     }
 
+    // Currency Conversion for Wallet Decriment
+    let walletAmount = data.amount;
+    if (wallet.currency !== credit.currency) {
+      // Simple hardcoded conversion as fallback (matching frontend)
+      if (wallet.currency === 'USD' && credit.currency === 'UAH') {
+        walletAmount = data.amount / 40;
+      } else if (wallet.currency === 'UAH' && credit.currency === 'USD') {
+        walletAmount = data.amount * 40;
+      }
+      console.log(`Converting ${data.amount} ${credit.currency} to ${walletAmount} ${wallet.currency} for payment`);
+    }
+
     const result = await prisma.$transaction(async (tx: any) => {
       // 1. Decrement Wallet Balance
       await tx.wallet.update({
         where: { id: data.walletId },
-        data: { balance: { decrement: data.amount } },
+        data: { balance: { decrement: walletAmount } },
       });
 
       // 2. Create Transaction
@@ -120,8 +134,8 @@ export const payCredit = async (req: AuthRequest, res: Response) => {
           walletId: data.walletId,
           categoryId: data.categoryId,
           type: 'EXPENSE',
-          amount: data.amount,
-          description: `Credit Payment: ${credit.name}`,
+          amount: walletAmount,
+          description: `Credit Payment: ${credit.name} (${data.amount} ${credit.currency})`,
           date: data.date ? new Date(data.date) : new Date(),
         },
       });

@@ -108,6 +108,7 @@ model Budget {
   endDate      DateTime
   status       BudgetStatus  @default(ACTIVE)
   note         String?
+  currency     String        @default("USD")
   createdAt    DateTime      @default(now())
   updatedAt    DateTime      @updatedAt
 
@@ -123,6 +124,7 @@ model SavingGoal {
   name          String
   targetAmount  Float
   currentAmount Float         @default(0)
+  currency      String        @default("USD")
   deadline      DateTime?
   createdAt     DateTime      @default(now())
   updatedAt     DateTime      @updatedAt
@@ -139,6 +141,7 @@ model Credit {
   remainingAmount Float         @default(0)
   interestRate    Float?        @default(0)
   monthlyPayment  Float         @default(0)
+  currency        String        @default("USD")
   dueDate         DateTime?
   createdAt       DateTime      @default(now())
   updatedAt       DateTime      @updatedAt

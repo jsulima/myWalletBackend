@@ -7,6 +7,7 @@ const savingSchema = z.object({
   name: z.string().min(1),
   targetAmount: z.number().positive(),
   currentAmount: z.number().optional(),
+  currency: z.string().optional().default('USD'),
   deadline: z.string().datetime().optional(),
 });
 
@@ -27,6 +28,7 @@ export const createSaving = async (req: AuthRequest, res: Response) => {
         ...data,
         userId: req.userId!,
         currentAmount: data.currentAmount ?? 0,
+        currency: data.currency,
         deadline: data.deadline ? new Date(data.deadline) : undefined,
       },
     });
