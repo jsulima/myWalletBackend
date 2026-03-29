@@ -35,6 +35,7 @@ const register = async (req, res) => {
             res.status(400).json({ error: error.issues });
         }
         else {
+            console.error('Register Error:', error);
             res.status(500).json({ error: 'Internal server error' });
         }
     }
@@ -63,6 +64,7 @@ const login = async (req, res) => {
         res.status(200).json({ user: { id: user.id, email: user.email, name: user.name, language: user.language }, token });
     }
     catch (error) {
+        console.error('Login Error:', error);
         res.status(500).json({ error: 'Internal server error' });
     }
 };
@@ -84,6 +86,7 @@ const getMe = async (req, res) => {
         res.json(user);
     }
     catch (error) {
+        console.error('Get Me Error:', error);
         res.status(500).json({ error: 'Internal server error' });
     }
 };
@@ -110,6 +113,7 @@ const updateProfile = async (req, res) => {
             res.status(400).json({ error: error.issues });
         }
         else {
+            console.error('Update Profile Error:', error);
             res.status(500).json({ error: 'Internal server error' });
         }
     }

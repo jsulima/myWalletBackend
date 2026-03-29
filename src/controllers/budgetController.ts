@@ -13,7 +13,7 @@ const budgetSchema = z.object({
 });
 
 const updateBudgetSchema = z.object({
-  limit: z.number().positive().optional(),
+  limit: z.number().positive().finite().optional(),
   startDate: z.string().datetime().optional(),
   endDate: z.string().datetime().optional(),
   status: z.enum(['DRAFT', 'ACTIVE', 'FINISHED']).optional(),
@@ -29,6 +29,7 @@ export const getBudgets = async (req: AuthRequest, res: Response) => {
     });
     res.json(budgets);
   } catch (error) {
+    console.error('Get Budgets Error:', error);
     res.status(500).json({ error: 'Failed to fetch budgets' });
   }
 };
@@ -85,6 +86,7 @@ export const updateBudget = async (req: AuthRequest, res: Response) => {
     if (error instanceof z.ZodError) {
       res.status(400).json({ error: error.issues });
     } else {
+      console.error('Update Budget Error:', error);
       res.status(500).json({ error: 'Failed to update budget' });
     }
   }
@@ -101,6 +103,7 @@ export const deleteBudget = async (req: AuthRequest, res: Response) => {
     await prisma.budget.delete({ where: { id } });
     res.json({ message: 'Budget deleted' });
   } catch (error) {
+    console.error('Delete Budget Error:', error);
     res.status(500).json({ error: 'Failed to delete budget' });
   }
 };

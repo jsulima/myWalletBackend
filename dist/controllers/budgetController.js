@@ -12,7 +12,7 @@ const budgetSchema = zod_1.z.object({
     note: zod_1.z.string().max(500).optional(),
 });
 const updateBudgetSchema = zod_1.z.object({
-    limit: zod_1.z.number().positive().optional(),
+    limit: zod_1.z.number().positive().finite().optional(),
     startDate: zod_1.z.string().datetime().optional(),
     endDate: zod_1.z.string().datetime().optional(),
     status: zod_1.z.enum(['DRAFT', 'ACTIVE', 'FINISHED']).optional(),
@@ -28,6 +28,7 @@ const getBudgets = async (req, res) => {
         res.json(budgets);
     }
     catch (error) {
+        console.error('Get Budgets Error:', error);
         res.status(500).json({ error: 'Failed to fetch budgets' });
     }
 };
@@ -85,6 +86,7 @@ const updateBudget = async (req, res) => {
             res.status(400).json({ error: error.issues });
         }
         else {
+            console.error('Update Budget Error:', error);
             res.status(500).json({ error: 'Failed to update budget' });
         }
     }
@@ -102,6 +104,7 @@ const deleteBudget = async (req, res) => {
         res.json({ message: 'Budget deleted' });
     }
     catch (error) {
+        console.error('Delete Budget Error:', error);
         res.status(500).json({ error: 'Failed to delete budget' });
     }
 };
