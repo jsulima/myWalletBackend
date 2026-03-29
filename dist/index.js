@@ -17,6 +17,8 @@ const transactionRoutes_1 = __importDefault(require("./routes/transactionRoutes"
 const budgetRoutes_1 = __importDefault(require("./routes/budgetRoutes"));
 const savingRoutes_1 = __importDefault(require("./routes/savingRoutes"));
 const creditRoutes_1 = __importDefault(require("./routes/creditRoutes"));
+const transferRoutes_1 = __importDefault(require("./routes/transferRoutes"));
+const currencyRoutes_1 = __importDefault(require("./routes/currencyRoutes"));
 // Middlewares
 app.use((0, helmet_1.default)());
 app.use((0, cors_1.default)());
@@ -29,6 +31,8 @@ app.use('/api/transactions', transactionRoutes_1.default);
 app.use('/api/budgets', budgetRoutes_1.default);
 app.use('/api/savings', savingRoutes_1.default);
 app.use('/api/credits', creditRoutes_1.default);
+app.use('/api/transfers', transferRoutes_1.default);
+app.use('/api/currency', currencyRoutes_1.default);
 // Basic route
 app.get('/health', (req, res) => {
     res.json({ status: 'ok', message: 'myWallet API is running!' });

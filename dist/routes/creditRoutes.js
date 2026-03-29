@@ -9,4 +9,5 @@ router.get('/', creditController_1.getCredits);
 router.post('/', creditController_1.createCredit);
 router.put('/:id', creditController_1.updateCredit);
 router.delete('/:id', creditController_1.deleteCredit);
+router.post('/:id/pay', creditController_1.payCredit);
 exports.default = router;

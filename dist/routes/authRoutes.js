@@ -7,4 +7,5 @@ const router = (0, express_1.Router)();
 router.post('/register', authController_1.register);
 router.post('/login', authController_1.login);
 router.get('/me', authMiddleware_1.authenticate, authController_1.getMe);
+router.patch('/profile', authMiddleware_1.authenticate, authController_1.updateProfile);
 exports.default = router;

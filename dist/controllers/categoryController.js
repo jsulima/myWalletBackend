@@ -6,6 +6,8 @@ const zod_1 = require("zod");
 const categorySchema = zod_1.z.object({
     name: zod_1.z.string().min(1),
     type: zod_1.z.enum(['INCOME', 'EXPENSE']),
+    color: zod_1.z.string().optional(),
+    icon: zod_1.z.string().optional(),
 });
 const getCategories = async (req, res) => {
     try {
@@ -16,10 +18,9 @@ const getCategories = async (req, res) => {
                     { userId: req.userId },
                 ],
             },
-            orderBy: [
-                { userId: 'desc' }, // User categories first or nulls first, Prisma ordering allows doing this simply. Better to just sort by createdAt
-                { createdAt: 'desc' }
-            ]
+            orderBy: {
+                createdAt: 'asc',
+            },
         });
         res.json(categories);
     }
@@ -30,11 +31,13 @@ const getCategories = async (req, res) => {
 exports.getCategories = getCategories;
 const createCategory = async (req, res) => {
     try {
-        const { name, type } = categorySchema.parse(req.body);
+        const { name, type, color, icon } = categorySchema.parse(req.body);
         const category = await db_1.prisma.category.create({
             data: {
                 name,
                 type,
+                color: color ?? '#6b7280',
+                icon: icon ?? 'Tag',
                 userId: req.userId,
             },
         });
@@ -53,7 +56,7 @@ exports.createCategory = createCategory;
 const updateCategory = async (req, res) => {
     try {
         const id = String(req.params.id);
-        const { name, type } = categorySchema.partial().parse(req.body);
+        const { name, type, color, icon } = categorySchema.partial().parse(req.body);
         const category = await db_1.prisma.category.findUnique({ where: { id } });
         if (!category) {
             res.status(404).json({ error: 'Category not found' });
@@ -66,7 +69,7 @@ const updateCategory = async (req, res) => {
         }
         const updated = await db_1.prisma.category.update({
             where: { id },
-            data: { name, type },
+            data: { name, type, color, icon },
         });
         res.json(updated);
     }

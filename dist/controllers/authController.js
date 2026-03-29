@@ -3,7 +3,7 @@ var __importDefault = (this && this.__importDefault) || function (mod) {
     return (mod && mod.__esModule) ? mod : { "default": mod };
 };
 Object.defineProperty(exports, "__esModule", { value: true });
-exports.getMe = exports.login = exports.register = void 0;
+exports.updateProfile = exports.getMe = exports.login = exports.register = void 0;
 const bcrypt_1 = __importDefault(require("bcrypt"));
 const jsonwebtoken_1 = __importDefault(require("jsonwebtoken"));
 const db_1 = require("../utils/db");
@@ -28,7 +28,7 @@ const register = async (req, res) => {
         const token = jsonwebtoken_1.default.sign({ userId: user.id }, process.env.JWT_SECRET || 'secret', {
             expiresIn: '7d',
         });
-        res.status(201).json({ user: { id: user.id, email: user.email, name: user.name }, token });
+        res.status(201).json({ user: { id: user.id, email: user.email, name: user.name, language: user.language }, token });
     }
     catch (error) {
         if (error instanceof zod_1.z.ZodError) {
@@ -60,7 +60,7 @@ const login = async (req, res) => {
         const token = jsonwebtoken_1.default.sign({ userId: user.id }, process.env.JWT_SECRET || 'secret', {
             expiresIn: '7d',
         });
-        res.status(200).json({ user: { id: user.id, email: user.email, name: user.name }, token });
+        res.status(200).json({ user: { id: user.id, email: user.email, name: user.name, language: user.language }, token });
     }
     catch (error) {
         res.status(500).json({ error: 'Internal server error' });
@@ -75,7 +75,7 @@ const getMe = async (req, res) => {
         }
         const user = await db_1.prisma.user.findUnique({
             where: { id: req.userId },
-            select: { id: true, email: true, name: true, createdAt: true },
+            select: { id: true, email: true, name: true, language: true, createdAt: true },
         });
         if (!user) {
             res.status(404).json({ error: 'User not found' });
@@ -88,3 +88,30 @@ const getMe = async (req, res) => {
     }
 };
 exports.getMe = getMe;
+const updateProfileSchema = zod_1.z.object({
+    language: zod_1.z.string().optional(),
+});
+const updateProfile = async (req, res) => {
+    try {
+        if (!req.userId) {
+            res.status(401).json({ error: 'Unauthorized' });
+            return;
+        }
+        const data = updateProfileSchema.parse(req.body);
+        const user = await db_1.prisma.user.update({
+            where: { id: req.userId },
+            data,
+            select: { id: true, email: true, name: true, language: true, createdAt: true },
+        });
+        res.json(user);
+    }
+    catch (error) {
+        if (error instanceof zod_1.z.ZodError) {
+            res.status(400).json({ error: error.issues });
+        }
+        else {
+            res.status(500).json({ error: 'Internal server error' });
+        }
+    }
+};
+exports.updateProfile = updateProfile;

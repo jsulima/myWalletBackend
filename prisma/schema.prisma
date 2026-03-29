@@ -107,6 +107,7 @@ model Budget {
   startDate    DateTime
   endDate      DateTime
   status       BudgetStatus  @default(ACTIVE)
+  note         String?
   createdAt    DateTime      @default(now())
   updatedAt    DateTime      @updatedAt
 
