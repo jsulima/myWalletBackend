@@ -30,7 +30,7 @@ export const register = async (req: Request, res: Response) => {
       expiresIn: '7d',
     });
 
-    res.status(201).json({ user: { id: user.id, email: user.email, name: user.name }, token });
+    res.status(201).json({ user: { id: user.id, email: user.email, name: user.name, language: user.language }, token });
   } catch (error) {
     if (error instanceof z.ZodError) {
       res.status(400).json({ error: error.issues });
@@ -65,7 +65,7 @@ export const login = async (req: Request, res: Response) => {
       expiresIn: '7d',
     });
 
-    res.status(200).json({ user: { id: user.id, email: user.email, name: user.name }, token });
+    res.status(200).json({ user: { id: user.id, email: user.email, name: user.name, language: user.language }, token });
   } catch (error) {
     res.status(500).json({ error: 'Internal server error' });
   }
@@ -79,7 +79,7 @@ export const getMe = async (req: AuthRequest, res: Response) => {
     }
     const user = await prisma.user.findUnique({
       where: { id: req.userId },
-      select: { id: true, email: true, name: true, createdAt: true },
+      select: { id: true, email: true, name: true, language: true, createdAt: true },
     });
 
     if (!user) {
@@ -90,5 +90,34 @@ export const getMe = async (req: AuthRequest, res: Response) => {
     res.json(user);
   } catch (error) {
     res.status(500).json({ error: 'Internal server error' });
+  }
+};
+
+const updateProfileSchema = z.object({
+  language: z.string().optional(),
+});
+
+export const updateProfile = async (req: AuthRequest, res: Response) => {
+  try {
+    if (!req.userId) {
+       res.status(401).json({ error: 'Unauthorized' });
+       return;
+    }
+
+    const data = updateProfileSchema.parse(req.body);
+
+    const user = await prisma.user.update({
+      where: { id: req.userId },
+      data,
+      select: { id: true, email: true, name: true, language: true, createdAt: true },
+    });
+
+    res.json(user);
+  } catch (error) {
+    if (error instanceof z.ZodError) {
+      res.status(400).json({ error: error.issues });
+    } else {
+      res.status(500).json({ error: 'Internal server error' });
+    }
   }
 };
