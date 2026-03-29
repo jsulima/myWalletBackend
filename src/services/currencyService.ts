@@ -17,7 +17,7 @@ export interface CurrencyRate {
 
 let cachedRates: CurrencyRate[] = [];
 let lastFetchTime = 0;
-const CACHE_DURATION = 1000 * 60 * 60; // 1 hour
+const CACHE_DURATION = 1000 * 60 * 60 * 4; // 4 hours
 
 const CURRENCY_CODES: Record<number, string> = {
   840: 'USD',
