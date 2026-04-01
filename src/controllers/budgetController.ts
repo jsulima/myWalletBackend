@@ -11,6 +11,7 @@ const budgetSchema = z.object({
   status: z.enum(['DRAFT', 'ACTIVE', 'FINISHED']).optional(),
   note: z.string().max(500).optional(),
   currency: z.string().optional().default('USD'),
+  periodId: z.string().uuid().optional(),
 });
 
 const updateBudgetSchema = z.object({
@@ -20,13 +21,14 @@ const updateBudgetSchema = z.object({
   status: z.enum(['DRAFT', 'ACTIVE', 'FINISHED']).optional(),
   note: z.string().max(500).optional(),
   currency: z.string().optional(),
+  periodId: z.string().uuid().optional(),
 });
 
 export const getBudgets = async (req: AuthRequest, res: Response) => {
   try {
     const budgets = await prisma.budget.findMany({
       where: { userId: req.userId },
-      include: { category: true },
+      include: { category: true, period: true },
       orderBy: { startDate: 'desc' },
     });
     res.json(budgets);
@@ -48,6 +50,7 @@ export const createBudget = async (req: AuthRequest, res: Response) => {
         status: data.status || 'ACTIVE',
         note: data.note,
         currency: data.currency,
+        periodId: data.periodId,
         userId: req.userId!,
       },
     });
@@ -82,6 +85,7 @@ export const updateBudget = async (req: AuthRequest, res: Response) => {
         status: data.status,
         note: data.note,
         currency: data.currency,
+        periodId: data.periodId,
       },
     });
 
