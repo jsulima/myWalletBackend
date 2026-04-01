@@ -1,0 +1,14 @@
+"use strict";
+Object.defineProperty(exports, "__esModule", { value: true });
+const express_1 = require("express");
+const budgetPeriodController_1 = require("../controllers/budgetPeriodController");
+const authMiddleware_1 = require("../middlewares/authMiddleware");
+const router = (0, express_1.Router)();
+router.use(authMiddleware_1.authenticate);
+router.get('/', budgetPeriodController_1.getBudgetPeriods);
+router.post('/', budgetPeriodController_1.createBudgetPeriod);
+router.patch('/:id', budgetPeriodController_1.updateBudgetPeriod);
+router.delete('/:id', budgetPeriodController_1.deleteBudgetPeriod);
+router.get('/:id/analytics', budgetPeriodController_1.getPeriodAnalytics);
+router.post('/:id/clone', budgetPeriodController_1.cloneBudgetPeriod);
+exports.default = router;

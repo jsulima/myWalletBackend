@@ -11,6 +11,7 @@ const budgetSchema = zod_1.z.object({
     status: zod_1.z.enum(['DRAFT', 'ACTIVE', 'FINISHED']).optional(),
     note: zod_1.z.string().max(500).optional(),
     currency: zod_1.z.string().optional().default('USD'),
+    periodId: zod_1.z.string().uuid().optional(),
 });
 const updateBudgetSchema = zod_1.z.object({
     limit: zod_1.z.number().positive().finite().optional(),
@@ -19,12 +20,13 @@ const updateBudgetSchema = zod_1.z.object({
     status: zod_1.z.enum(['DRAFT', 'ACTIVE', 'FINISHED']).optional(),
     note: zod_1.z.string().max(500).optional(),
     currency: zod_1.z.string().optional(),
+    periodId: zod_1.z.string().uuid().optional(),
 });
 const getBudgets = async (req, res) => {
     try {
         const budgets = await db_1.prisma.budget.findMany({
             where: { userId: req.userId },
-            include: { category: true },
+            include: { category: true, period: true },
             orderBy: { startDate: 'desc' },
         });
         res.json(budgets);
@@ -47,6 +49,7 @@ const createBudget = async (req, res) => {
                 status: data.status || 'ACTIVE',
                 note: data.note,
                 currency: data.currency,
+                periodId: data.periodId,
                 userId: req.userId,
             },
         });
@@ -81,6 +84,7 @@ const updateBudget = async (req, res) => {
                 status: data.status,
                 note: data.note,
                 currency: data.currency,
+                periodId: data.periodId,
             },
         });
         res.json(budget);

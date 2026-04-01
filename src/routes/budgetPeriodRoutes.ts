@@ -4,7 +4,8 @@ import {
   createBudgetPeriod, 
   updateBudgetPeriod, 
   deleteBudgetPeriod, 
-  getPeriodAnalytics 
+  getPeriodAnalytics,
+  cloneBudgetPeriod
 } from '../controllers/budgetPeriodController';
 import { authenticate } from '../middlewares/authMiddleware';
 
@@ -17,5 +18,6 @@ router.post('/', createBudgetPeriod);
 router.patch('/:id', updateBudgetPeriod);
 router.delete('/:id', deleteBudgetPeriod);
 router.get('/:id/analytics', getPeriodAnalytics);
+router.post('/:id/clone', cloneBudgetPeriod);
 
 export default router;

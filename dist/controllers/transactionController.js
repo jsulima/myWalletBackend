@@ -67,7 +67,10 @@ const getTransactions = async (req, res) => {
                     }
                 },
             },
-            orderBy: { date: 'desc' },
+            orderBy: [
+                { date: 'desc' },
+                { createdAt: 'desc' }
+            ],
         });
         res.json(transactions);
     }

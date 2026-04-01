@@ -177,3 +177,64 @@ export const getPeriodAnalytics = async (req: AuthRequest, res: Response) => {
     res.status(500).json({ error: 'Failed to fetch period analytics' });
   }
 };
+
+export const cloneBudgetPeriod = async (req: AuthRequest, res: Response) => {
+  try {
+    const id = req.params.id;
+    const originalPeriod = await prisma.budgetPeriod.findUnique({
+      where: { id },
+      include: { budgets: true }
+    }) as (any & { budgets: any[] });
+
+    if (!originalPeriod || originalPeriod.userId !== req.userId) {
+      res.status(404).json({ error: 'Budget period not found' });
+      return;
+    }
+
+    // Determine the next cycle dates (e.g., next 30 days)
+    const nextStart = new Date(originalPeriod.endDate);
+    nextStart.setDate(nextStart.getDate() + 1);
+    nextStart.setHours(0, 0, 0, 0);
+
+    const nextEnd = new Date(nextStart);
+    nextEnd.setDate(nextEnd.getDate() + 30);
+    nextEnd.setHours(23, 59, 59, 999);
+
+    const result = await prisma.$transaction(async (tx: any) => {
+      // 1. Create the new period
+      const newPeriod = await tx.budgetPeriod.create({
+        data: {
+          name: `Draft: ${originalPeriod.name}`,
+          startDate: nextStart,
+          endDate: nextEnd,
+          status: 'DRAFT',
+          userId: req.userId!,
+        },
+      });
+
+      // 2. Clone all budgets
+      if (originalPeriod.budgets && originalPeriod.budgets.length > 0) {
+        await tx.budget.createMany({
+          data: originalPeriod.budgets.map((b: any) => ({
+            userId: req.userId!,
+            categoryId: b.categoryId,
+            limit: b.limit,
+            startDate: nextStart,
+            endDate: nextEnd,
+            status: 'DRAFT',
+            note: b.note,
+            currency: b.currency,
+            periodId: newPeriod.id
+          }))
+        });
+      }
+
+      return newPeriod;
+    });
+
+    res.status(201).json(result);
+  } catch (error) {
+    console.error('Clone Budget Period Error:', error);
+    res.status(500).json({ error: 'Failed to clone budget period' });
+  }
+};
