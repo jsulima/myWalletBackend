@@ -70,7 +70,10 @@ export const getTransactions = async (req: AuthRequest, res: Response) => {
           }
         },
       },
-      orderBy: { date: 'desc' },
+      orderBy: [
+        { date: 'desc' },
+        { createdAt: 'desc' }
+      ],
     });
     res.json(transactions);
   } catch (error: any) {
