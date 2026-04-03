@@ -60,7 +60,7 @@ export const createBudgetPeriod = async (req: AuthRequest, res: Response) => {
 
 export const updateBudgetPeriod = async (req: AuthRequest, res: Response) => {
   try {
-    const id = req.params.id;
+    const id = String(req.params.id);
     const data = updateBudgetPeriodSchema.parse(req.body);
 
     const period = await prisma.budgetPeriod.findUnique({ where: { id } });
@@ -100,7 +100,7 @@ export const updateBudgetPeriod = async (req: AuthRequest, res: Response) => {
 
 export const deleteBudgetPeriod = async (req: AuthRequest, res: Response) => {
   try {
-    const id = req.params.id;
+    const id = String(req.params.id);
     const period = await prisma.budgetPeriod.findUnique({ where: { id } });
     if (!period || period.userId !== req.userId) {
       res.status(404).json({ error: 'Budget period not found' });
@@ -116,7 +116,7 @@ export const deleteBudgetPeriod = async (req: AuthRequest, res: Response) => {
 
 export const getPeriodAnalytics = async (req: AuthRequest, res: Response) => {
   try {
-    const id = req.params.id;
+    const id = String(req.params.id);
     const period = await prisma.budgetPeriod.findUnique({
       where: { id },
       include: { 
@@ -145,7 +145,8 @@ export const getPeriodAnalytics = async (req: AuthRequest, res: Response) => {
     }) as Promise<any[]>);
 
     // Calculate analytics
-    const analytics = period.budgets.map((budget: any) => {
+    const budgets = (period as any).budgets || [];
+    const analytics = budgets.map((budget: any) => {
       const spent = transactions
         .filter((t: any) => t.categoryId === budget.categoryId)
         .reduce((sum: number, t: any) => sum + t.amount, 0);
@@ -161,7 +162,7 @@ export const getPeriodAnalytics = async (req: AuthRequest, res: Response) => {
       };
     });
 
-    const totalLimit = period.budgets.reduce((sum: number, b: any) => sum + b.limit, 0);
+    const totalLimit = budgets.reduce((sum: number, b: any) => sum + b.limit, 0);
     const totalSpent = analytics.reduce((sum: number, a: any) => sum + a.spent, 0);
 
     res.json({
@@ -180,7 +181,7 @@ export const getPeriodAnalytics = async (req: AuthRequest, res: Response) => {
 
 export const cloneBudgetPeriod = async (req: AuthRequest, res: Response) => {
   try {
-    const id = req.params.id;
+    const id = String(req.params.id);
     const originalPeriod = await prisma.budgetPeriod.findUnique({
       where: { id },
       include: { budgets: true }

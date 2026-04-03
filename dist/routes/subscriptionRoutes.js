@@ -1,0 +1,12 @@
+"use strict";
+Object.defineProperty(exports, "__esModule", { value: true });
+const express_1 = require("express");
+const subscriptionController_1 = require("../controllers/subscriptionController");
+const authMiddleware_1 = require("../middlewares/authMiddleware");
+const router = (0, express_1.Router)();
+router.use(authMiddleware_1.authenticate);
+router.get('/', subscriptionController_1.getSubscriptions);
+router.post('/', subscriptionController_1.createSubscription);
+router.put('/:id', subscriptionController_1.updateSubscription);
+router.delete('/:id', subscriptionController_1.deleteSubscription);
+exports.default = router;
