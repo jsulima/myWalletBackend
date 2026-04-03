@@ -8,5 +8,6 @@ router.use(authMiddleware_1.authenticate);
 router.get('/', subscriptionController_1.getSubscriptions);
 router.post('/', subscriptionController_1.createSubscription);
 router.put('/:id', subscriptionController_1.updateSubscription);
+router.post('/:id/pay', subscriptionController_1.paySubscription);
 router.delete('/:id', subscriptionController_1.deleteSubscription);
 exports.default = router;
