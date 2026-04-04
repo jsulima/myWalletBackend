@@ -1,16 +1,17 @@
 services:
-  postgres:
-    image: postgres:15-alpine
+  database:
+    image: mysql:8.0
     container_name: mywallet_db
     environment:
-      POSTGRES_USER: mywallet
-      POSTGRES_PASSWORD: mywalletpassword
-      POSTGRES_DB: mywallet
+      MYSQL_ROOT_PASSWORD: mywalletrootpassword
+      MYSQL_DATABASE: mywallet
+      MYSQL_USER: mywallet
+      MYSQL_PASSWORD: mywalletpassword
     ports:
-      - "5432:5432"
+      - "3306:3306"
     volumes:
-      - postgres_data:/var/lib/postgresql/data
+      - mysql_data:/var/lib/mysql
     restart: unless-stopped
 
 volumes:
-  postgres_data:
+  mysql_data:
