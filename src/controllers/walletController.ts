@@ -13,7 +13,10 @@ export const getWallets = async (req: AuthRequest, res: Response) => {
   try {
     const wallets = await prisma.wallet.findMany({
       where: { userId: req.userId },
-      orderBy: { createdAt: 'desc' },
+      orderBy: [
+        { order: 'asc' },
+        { createdAt: 'desc' }
+      ],
     });
     res.json(wallets);
   } catch (error) {
@@ -80,5 +83,28 @@ export const deleteWallet = async (req: AuthRequest, res: Response) => {
     res.json({ message: 'Wallet deleted successfully' });
   } catch (error) {
     res.status(500).json({ error: 'Failed to delete wallet' });
+  }
+};
+
+export const reorderWallets = async (req: AuthRequest, res: Response) => {
+  try {
+    const { walletIds } = req.body;
+    if (!Array.isArray(walletIds)) {
+      res.status(400).json({ error: 'walletIds must be an array' });
+      return;
+    }
+
+    await prisma.$transaction(
+      walletIds.map((id: string, index: number) =>
+        prisma.wallet.update({
+          where: { id, userId: req.userId },
+          data: { order: index },
+        })
+      )
+    );
+
+    res.json({ message: 'Wallets reordered successfully' });
+  } catch (error) {
+    res.status(500).json({ error: 'Failed to reorder wallets' });
   }
 };
