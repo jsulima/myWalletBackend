@@ -4,6 +4,7 @@ exports.paySubscription = exports.deleteSubscription = exports.updateSubscriptio
 const db_1 = require("../utils/db");
 const zod_1 = require("zod");
 const client_1 = require("@prisma/client");
+const currencyService_1 = require("../services/currencyService");
 const subscriptionSchema = zod_1.z.object({
     name: zod_1.z.string().min(1),
     amount: zod_1.z.number().positive(),
@@ -61,20 +62,25 @@ const createSubscription = async (req, res) => {
             });
             // 2. If initial payment, create a transaction
             if (isInitialPayment) {
+                const wallet = await tx.wallet.findUnique({ where: { id: data.walletId } });
+                const { convertedAmount, rate } = await (0, currencyService_1.convertAmount)(data.amount, data.currency, wallet.currency);
+                const description = data.currency !== wallet.currency
+                    ? `Subscription: ${data.name} (${data.amount} ${data.currency} at rate ${rate.toFixed(2)})`
+                    : `Subscription: ${data.name}`;
                 await tx.transaction.create({
                     data: {
                         walletId: data.walletId,
                         categoryId: data.categoryId || (await getDefaultCategoryId(req.userId)),
-                        amount: data.amount,
+                        amount: convertedAmount,
                         type: 'EXPENSE',
-                        description: `Subscription: ${data.name}`,
+                        description,
                         date: startDate,
                     }
                 });
                 // 3. Update wallet balance
                 await tx.wallet.update({
                     where: { id: data.walletId },
-                    data: { balance: { decrement: data.amount } }
+                    data: { balance: { decrement: convertedAmount } }
                 });
             }
             return subscription;
@@ -146,21 +152,25 @@ const paySubscription = async (req, res) => {
         if (subscription.status !== client_1.SubscriptionStatus.ACTIVE)
             return res.status(400).json({ error: 'Subscription is not active' });
         const result = await db_1.prisma.$transaction(async (tx) => {
+            const { convertedAmount, rate } = await (0, currencyService_1.convertAmount)(subscription.amount, subscription.currency, subscription.wallet.currency);
+            const description = subscription.currency !== subscription.wallet.currency
+                ? `Subscription: ${subscription.name} (${subscription.amount} ${subscription.currency} at rate ${rate.toFixed(2)})`
+                : `Subscription: ${subscription.name}`;
             // 1. Create Transaction
             await tx.transaction.create({
                 data: {
                     walletId: subscription.walletId,
                     categoryId: subscription.categoryId || (await getDefaultCategoryId(req.userId)),
-                    amount: subscription.amount,
+                    amount: convertedAmount,
                     type: 'EXPENSE',
-                    description: `Subscription: ${subscription.name}`,
+                    description,
                     date: new Date(),
                 }
             });
             // 2. Update Wallet Balance
             await tx.wallet.update({
                 where: { id: subscription.walletId },
-                data: { balance: { decrement: subscription.amount } }
+                data: { balance: { decrement: convertedAmount } }
             });
             // 3. Update Next Payment Date
             const nextDate = calculateNextPaymentDate(new Date(subscription.nextPaymentDate), subscription.frequency);

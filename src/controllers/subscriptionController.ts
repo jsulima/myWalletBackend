@@ -3,6 +3,7 @@ import { prisma } from '../utils/db';
 import { z } from 'zod';
 import { AuthRequest } from '../middlewares/authMiddleware';
 import { SubscriptionFrequency, SubscriptionStatus } from '@prisma/client';
+import { convertAmount } from '../services/currencyService';
 
 const subscriptionSchema = z.object({
   name: z.string().min(1),
@@ -65,13 +66,20 @@ export const createSubscription = async (req: AuthRequest, res: Response) => {
 
       // 2. If initial payment, create a transaction
       if (isInitialPayment) {
+        const wallet = await tx.wallet.findUnique({ where: { id: data.walletId } });
+        const { convertedAmount, rate } = await convertAmount(data.amount, data.currency, wallet.currency);
+        
+        const description = data.currency !== wallet.currency
+          ? `Subscription: ${data.name} (${data.amount} ${data.currency} at rate ${rate.toFixed(2)})`
+          : `Subscription: ${data.name}`;
+
         await tx.transaction.create({
           data: {
             walletId: data.walletId,
             categoryId: data.categoryId || (await getDefaultCategoryId(req.userId!)),
-            amount: data.amount,
+            amount: convertedAmount,
             type: 'EXPENSE',
-            description: `Subscription: ${data.name}`,
+            description,
             date: startDate,
           }
         });
@@ -79,7 +87,7 @@ export const createSubscription = async (req: AuthRequest, res: Response) => {
         // 3. Update wallet balance
         await tx.wallet.update({
           where: { id: data.walletId },
-          data: { balance: { decrement: data.amount } }
+          data: { balance: { decrement: convertedAmount } }
         });
       }
 
@@ -151,14 +159,20 @@ export const paySubscription = async (req: AuthRequest, res: Response) => {
     if (subscription.status !== SubscriptionStatus.ACTIVE) return res.status(400).json({ error: 'Subscription is not active' });
 
     const result = await prisma.$transaction(async (tx: any) => {
+      const { convertedAmount, rate } = await convertAmount(subscription.amount, subscription.currency, subscription.wallet.currency);
+      
+      const description = subscription.currency !== subscription.wallet.currency
+        ? `Subscription: ${subscription.name} (${subscription.amount} ${subscription.currency} at rate ${rate.toFixed(2)})`
+        : `Subscription: ${subscription.name}`;
+
       // 1. Create Transaction
       await tx.transaction.create({
         data: {
           walletId: subscription.walletId,
           categoryId: subscription.categoryId || (await getDefaultCategoryId(req.userId!)),
-          amount: subscription.amount,
+          amount: convertedAmount,
           type: 'EXPENSE',
-          description: `Subscription: ${subscription.name}`,
+          description,
           date: new Date(),
         }
       });
@@ -166,7 +180,7 @@ export const paySubscription = async (req: AuthRequest, res: Response) => {
       // 2. Update Wallet Balance
       await tx.wallet.update({
         where: { id: subscription.walletId },
-        data: { balance: { decrement: subscription.amount } }
+        data: { balance: { decrement: convertedAmount } }
       });
 
       // 3. Update Next Payment Date

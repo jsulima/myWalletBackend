@@ -3,7 +3,7 @@ var __importDefault = (this && this.__importDefault) || function (mod) {
     return (mod && mod.__esModule) ? mod : { "default": mod };
 };
 Object.defineProperty(exports, "__esModule", { value: true });
-exports.fetchCurrencyRates = void 0;
+exports.convertAmount = exports.fetchCurrencyRates = void 0;
 const axios_1 = __importDefault(require("axios"));
 let cachedRates = [];
 let lastFetchTime = 0;
@@ -60,3 +60,19 @@ const fetchCurrencyRates = async () => {
     }
 };
 exports.fetchCurrencyRates = fetchCurrencyRates;
+const convertAmount = async (amount, from, to) => {
+    if (from === to)
+        return { convertedAmount: amount, rate: 1 };
+    const rates = await (0, exports.fetchCurrencyRates)();
+    const rateObj = rates.find(r => r.from === from && r.to === to);
+    if (!rateObj) {
+        // If no direct rate, check if we can convert via UAH (e.g., EUR to USD via UAH)
+        // For this simple app, we usually have UAH as one of the currencies
+        throw new Error(`Exchange rate not found for ${from} to ${to}`);
+    }
+    return {
+        convertedAmount: amount * rateObj.rate,
+        rate: rateObj.rate,
+    };
+};
+exports.convertAmount = convertAmount;

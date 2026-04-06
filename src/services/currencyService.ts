@@ -77,3 +77,21 @@ export const fetchCurrencyRates = async (): Promise<CurrencyRate[]> => {
     ];
   }
 };
+
+export const convertAmount = async (amount: number, from: string, to: string): Promise<{ convertedAmount: number; rate: number }> => {
+  if (from === to) return { convertedAmount: amount, rate: 1 };
+  
+  const rates = await fetchCurrencyRates();
+  const rateObj = rates.find(r => r.from === from && r.to === to);
+  
+  if (!rateObj) {
+    // If no direct rate, check if we can convert via UAH (e.g., EUR to USD via UAH)
+    // For this simple app, we usually have UAH as one of the currencies
+    throw new Error(`Exchange rate not found for ${from} to ${to}`);
+  }
+  
+  return {
+    convertedAmount: amount * rateObj.rate,
+    rate: rateObj.rate,
+  };
+};
