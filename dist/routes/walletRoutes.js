@@ -7,6 +7,7 @@ const router = (0, express_1.Router)();
 router.use(authMiddleware_1.authenticate);
 router.get('/', walletController_1.getWallets);
 router.post('/', walletController_1.createWallet);
+router.post('/reorder', walletController_1.reorderWallets);
 router.put('/:id', walletController_1.updateWallet);
 router.delete('/:id', walletController_1.deleteWallet);
 exports.default = router;

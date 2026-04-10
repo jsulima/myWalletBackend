@@ -5,6 +5,7 @@ generator client {
 datasource db {
   provider = "mysql"
   url      = env("DATABASE_URL")
+  shadowDatabaseUrl = env("SHADOW_DATABASE_URL")
 }
 
 model User {
@@ -88,8 +89,10 @@ model Transaction {
   targetWalletId  String?         // Target wallet (for TRANSFER)
   categoryId      String
   transferId      String?         // Kept for backward compatibility during migration
+  creditId        String?
   amount          Float           // Source amount
   targetAmount    Float?          // Target amount (for TRANSFER)
+  creditAmount    Float?          // Amount in credit currency (for credit payments)
   type            TransactionType
   date            DateTime        @default(now())
   description     String?
@@ -100,6 +103,7 @@ model Transaction {
   targetWallet    Wallet?         @relation("TargetWallet", fields: [targetWalletId], references: [id], onDelete: SetNull)
   category        Category        @relation(fields: [categoryId], references: [id], onDelete: Cascade)
   transfer        Transfer?       @relation(fields: [transferId], references: [id], onDelete: Cascade)
+  credit          Credit?         @relation(fields: [creditId], references: [id], onDelete: SetNull)
 }
 
 model Transfer {
@@ -183,6 +187,7 @@ model Credit {
   updatedAt       DateTime      @updatedAt
 
   user            User          @relation(fields: [userId], references: [id], onDelete: Cascade)
+  transactions    Transaction[]
 }
 
 model Subscription {

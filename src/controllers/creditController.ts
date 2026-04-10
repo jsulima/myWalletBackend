@@ -3,6 +3,8 @@ import { prisma } from '../utils/db';
 import { z } from 'zod';
 import { AuthRequest } from '../middlewares/authMiddleware';
 
+import { convertAmount } from '../services/currencyService';
+
 const creditSchema = z.object({
   name: z.string().min(1),
   totalAmount: z.number().positive(),
@@ -109,17 +111,10 @@ export const payCredit = async (req: AuthRequest, res: Response) => {
        return res.status(403).json({ error: 'Access denied to this category' });
     }
 
-    // Currency Conversion for Wallet Decriment
-    let walletAmount = data.amount;
-    if (wallet.currency !== credit.currency) {
-      // Simple hardcoded conversion as fallback (matching frontend)
-      if (wallet.currency === 'USD' && credit.currency === 'UAH') {
-        walletAmount = data.amount / 40;
-      } else if (wallet.currency === 'UAH' && credit.currency === 'USD') {
-        walletAmount = data.amount * 40;
-      }
-      console.log(`Converting ${data.amount} ${credit.currency} to ${walletAmount} ${wallet.currency} for payment`);
-    }
+    // Currency Conversion for Wallet Decrement
+    const { convertedAmount: walletAmount, rate } = await convertAmount(data.amount, credit.currency, wallet.currency);
+    
+    console.log(`Converting ${data.amount} ${credit.currency} to ${walletAmount} ${wallet.currency} for payment at rate ${rate}`);
 
     const result = await prisma.$transaction(async (tx: any) => {
       // 1. Decrement Wallet Balance
@@ -129,13 +124,19 @@ export const payCredit = async (req: AuthRequest, res: Response) => {
       });
 
       // 2. Create Transaction
+      const description = wallet.currency !== credit.currency
+        ? `Credit Payment: ${credit.name} (${data.amount} ${credit.currency} at rate ${rate.toFixed(4)})`
+        : `Credit Payment: ${credit.name}`;
+
       const transaction = await tx.transaction.create({
         data: {
           walletId: data.walletId,
           categoryId: data.categoryId,
           type: 'EXPENSE',
           amount: walletAmount,
-          description: `Credit Payment: ${credit.name} (${data.amount} ${credit.currency})`,
+          creditId: id,
+          creditAmount: data.amount,
+          description,
           date: data.date ? new Date(data.date) : new Date(),
         },
       });
@@ -157,7 +158,8 @@ export const payCredit = async (req: AuthRequest, res: Response) => {
     if (error instanceof z.ZodError) {
       res.status(400).json({ error: error.issues });
     } else {
-      res.status(500).json({ error: 'Failed to process payment' });
     }
   }
 };
+
+

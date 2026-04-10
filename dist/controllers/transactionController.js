@@ -12,10 +12,12 @@ const transactionSchema = zod_1.z.object({
     type: zod_1.z.enum(['INCOME', 'EXPENSE', 'TRANSFER']),
     date: zod_1.z.string().datetime().optional(), // ISO string
     description: zod_1.z.string().optional(),
+    creditId: zod_1.z.string().uuid().optional().nullable(),
+    creditAmount: zod_1.z.number().positive().optional().nullable(),
 });
 const getTransactions = async (req, res) => {
     try {
-        const { walletId } = req.query;
+        const { walletId, creditId } = req.query;
         // Ensure the wallet belongs to the user if walletId is provided
         if (walletId) {
             const wallet = await db_1.prisma.wallet.findUnique({ where: { id: String(walletId) } });
@@ -24,20 +26,30 @@ const getTransactions = async (req, res) => {
                 return;
             }
         }
+        // Ensure the credit belongs to the user if creditId is provided
+        if (creditId) {
+            const credit = await db_1.prisma.credit.findUnique({ where: { id: String(creditId) } });
+            if (!credit || credit.userId !== req.userId) {
+                res.status(403).json({ error: 'Access denied to this credit' });
+                return;
+            }
+        }
         const transactions = await db_1.prisma.transaction.findMany({
-            where: walletId
-                ? {
-                    OR: [
-                        { walletId: String(walletId) },
-                        { targetWalletId: String(walletId) }
-                    ]
-                }
-                : {
-                    OR: [
-                        { wallet: { userId: req.userId } },
-                        { AND: [{ targetWalletId: { not: null } }, { targetWallet: { userId: req.userId } }] }
-                    ]
-                },
+            where: creditId
+                ? { creditId: String(creditId) }
+                : walletId
+                    ? {
+                        OR: [
+                            { walletId: String(walletId) },
+                            { targetWalletId: String(walletId) }
+                        ]
+                    }
+                    : {
+                        OR: [
+                            { wallet: { userId: req.userId } },
+                            { AND: [{ targetWalletId: { not: null } }, { targetWallet: { userId: req.userId } }] }
+                        ]
+                    },
             select: {
                 id: true,
                 walletId: true,
@@ -175,6 +187,18 @@ const deleteTransaction = async (req, res) => {
                     data: { balance: { increment: balanceRevert } },
                 });
             }
+            // Revert Credit balance if applicable
+            console.log(`Checking credit sync for transaction: ${transaction.id}, creditId: ${transaction.creditId}, creditAmount: ${transaction.creditAmount}`);
+            if (transaction.creditId && transaction.creditAmount) {
+                console.log(`Reverting credit balance for credit: ${transaction.creditId} by ${transaction.creditAmount}`);
+                await tx.credit.update({
+                    where: { id: transaction.creditId },
+                    data: {
+                        paidAmount: { decrement: transaction.creditAmount },
+                        remainingAmount: { increment: transaction.creditAmount },
+                    },
+                });
+            }
         });
         res.json({ message: 'Transaction deleted successfully' });
     }
@@ -251,11 +275,38 @@ const updateTransaction = async (req, res) => {
                     data: { balance: { increment: newBalanceChange } },
                 });
             }
+            const newCreditId = data.creditId !== undefined ? data.creditId : oldTransaction.creditId;
+            const newCreditAmount = data.creditAmount !== undefined ? data.creditAmount : oldTransaction.creditAmount;
+            // Handle Credit balance changes
+            if (oldTransaction.creditId !== newCreditId || oldTransaction.creditAmount !== newCreditAmount) {
+                // 1. Revert old credit effect if it existed
+                if (oldTransaction.creditId && oldTransaction.creditAmount) {
+                    await tx.credit.update({
+                        where: { id: oldTransaction.creditId },
+                        data: {
+                            paidAmount: { decrement: oldTransaction.creditAmount },
+                            remainingAmount: { increment: oldTransaction.creditAmount },
+                        },
+                    });
+                }
+                // 2. Apply new credit effect if it exists
+                if (newCreditId && newCreditAmount) {
+                    await tx.credit.update({
+                        where: { id: newCreditId },
+                        data: {
+                            paidAmount: { increment: newCreditAmount },
+                            remainingAmount: { decrement: newCreditAmount },
+                        },
+                    });
+                }
+            }
             // 3. Update transaction record
             const updated = await tx.transaction.update({
                 where: { id },
                 data: {
                     ...data,
+                    creditId: newCreditId,
+                    creditAmount: newCreditAmount,
                     date: data.date ? new Date(data.date) : undefined,
                 },
             });

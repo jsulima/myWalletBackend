@@ -1,6 +1,6 @@
 "use strict";
 Object.defineProperty(exports, "__esModule", { value: true });
-exports.deleteWallet = exports.updateWallet = exports.createWallet = exports.getWallets = void 0;
+exports.reorderWallets = exports.deleteWallet = exports.updateWallet = exports.createWallet = exports.getWallets = void 0;
 const db_1 = require("../utils/db");
 const zod_1 = require("zod");
 const walletSchema = zod_1.z.object({
@@ -12,7 +12,10 @@ const getWallets = async (req, res) => {
     try {
         const wallets = await db_1.prisma.wallet.findMany({
             where: { userId: req.userId },
-            orderBy: { createdAt: 'desc' },
+            orderBy: [
+                { order: 'asc' },
+                { createdAt: 'desc' }
+            ],
         });
         res.json(wallets);
     }
@@ -85,3 +88,21 @@ const deleteWallet = async (req, res) => {
     }
 };
 exports.deleteWallet = deleteWallet;
+const reorderWallets = async (req, res) => {
+    try {
+        const { walletIds } = req.body;
+        if (!Array.isArray(walletIds)) {
+            res.status(400).json({ error: 'walletIds must be an array' });
+            return;
+        }
+        await db_1.prisma.$transaction(walletIds.map((id, index) => db_1.prisma.wallet.update({
+            where: { id, userId: req.userId },
+            data: { order: index },
+        })));
+        res.json({ message: 'Wallets reordered successfully' });
+    }
+    catch (error) {
+        res.status(500).json({ error: 'Failed to reorder wallets' });
+    }
+};
+exports.reorderWallets = reorderWallets;

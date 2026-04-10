@@ -3,6 +3,7 @@ Object.defineProperty(exports, "__esModule", { value: true });
 exports.payCredit = exports.deleteCredit = exports.updateCredit = exports.createCredit = exports.getCredits = void 0;
 const db_1 = require("../utils/db");
 const zod_1 = require("zod");
+const currencyService_1 = require("../services/currencyService");
 const creditSchema = zod_1.z.object({
     name: zod_1.z.string().min(1),
     totalAmount: zod_1.z.number().positive(),
@@ -109,18 +110,9 @@ const payCredit = async (req, res) => {
         if (!category || category.userId !== req.userId && category.userId !== null) {
             return res.status(403).json({ error: 'Access denied to this category' });
         }
-        // Currency Conversion for Wallet Decriment
-        let walletAmount = data.amount;
-        if (wallet.currency !== credit.currency) {
-            // Simple hardcoded conversion as fallback (matching frontend)
-            if (wallet.currency === 'USD' && credit.currency === 'UAH') {
-                walletAmount = data.amount / 40;
-            }
-            else if (wallet.currency === 'UAH' && credit.currency === 'USD') {
-                walletAmount = data.amount * 40;
-            }
-            console.log(`Converting ${data.amount} ${credit.currency} to ${walletAmount} ${wallet.currency} for payment`);
-        }
+        // Currency Conversion for Wallet Decrement
+        const { convertedAmount: walletAmount, rate } = await (0, currencyService_1.convertAmount)(data.amount, credit.currency, wallet.currency);
+        console.log(`Converting ${data.amount} ${credit.currency} to ${walletAmount} ${wallet.currency} for payment at rate ${rate}`);
         const result = await db_1.prisma.$transaction(async (tx) => {
             // 1. Decrement Wallet Balance
             await tx.wallet.update({
@@ -128,13 +120,18 @@ const payCredit = async (req, res) => {
                 data: { balance: { decrement: walletAmount } },
             });
             // 2. Create Transaction
+            const description = wallet.currency !== credit.currency
+                ? `Credit Payment: ${credit.name} (${data.amount} ${credit.currency} at rate ${rate.toFixed(4)})`
+                : `Credit Payment: ${credit.name}`;
             const transaction = await tx.transaction.create({
                 data: {
                     walletId: data.walletId,
                     categoryId: data.categoryId,
                     type: 'EXPENSE',
                     amount: walletAmount,
-                    description: `Credit Payment: ${credit.name} (${data.amount} ${credit.currency})`,
+                    creditId: id,
+                    creditAmount: data.amount,
+                    description,
                     date: data.date ? new Date(data.date) : new Date(),
                 },
             });
@@ -155,8 +152,27 @@ const payCredit = async (req, res) => {
             res.status(400).json({ error: error.issues });
         }
         else {
-            res.status(500).json({ error: 'Failed to process payment' });
         }
     }
 };
 exports.payCredit = payCredit;
+const deleteCredit = async (req, res) => {
+    try {
+        const id = String(req.params.id);
+        const credit = await db_1.prisma.credit.findUnique({
+            where: { id },
+        });
+        if (!credit || credit.userId !== req.userId) {
+            res.status(404).json({ error: 'Credit not found or access denied' });
+            return;
+        }
+        await db_1.prisma.credit.delete({
+            where: { id },
+        });
+        res.json({ message: 'Credit deleted successfully' });
+    }
+    catch (error) {
+        res.status(500).json({ error: 'Failed to delete credit' });
+    }
+};
+exports.deleteCredit = deleteCredit;
