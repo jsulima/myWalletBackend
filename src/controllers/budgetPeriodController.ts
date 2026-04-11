@@ -131,7 +131,7 @@ export const getPeriodAnalytics = async (req: AuthRequest, res: Response) => {
       return;
     }
 
-    // Get all transactions for the period
+    // 1. Get all transactions for the period
     const transactions = await (prisma.transaction.findMany({
       where: {
         wallet: { userId: req.userId },
@@ -142,11 +142,12 @@ export const getPeriodAnalytics = async (req: AuthRequest, res: Response) => {
         type: 'EXPENSE',
       },
       include: { category: true, wallet: true },
+      orderBy: { date: 'asc' }
     }) as Promise<any[]>);
 
-    // Calculate analytics
+    // 2. Calculate Category analytics
     const budgets = (period as any).budgets || [];
-    const analytics = budgets.map((budget: any) => {
+    const categoryAnalytics = budgets.map((budget: any) => {
       const spent = transactions
         .filter((t: any) => t.categoryId === budget.categoryId)
         .reduce((sum: number, t: any) => sum + t.amount, 0);
@@ -163,7 +164,83 @@ export const getPeriodAnalytics = async (req: AuthRequest, res: Response) => {
     });
 
     const totalLimit = budgets.reduce((sum: number, b: any) => sum + b.limit, 0);
-    const totalSpent = analytics.reduce((sum: number, a: any) => sum + a.spent, 0);
+    const totalSpent = categoryAnalytics.reduce((sum: number, a: any) => sum + a.spent, 0);
+
+    // 3. Daily Spending Dynamics (Phase 1)
+    const dailySpendingMap: Record<string, number> = {};
+    let cumulative = 0;
+    
+    // Initialize map with all days in period
+    const start = new Date(period.startDate);
+    const end = new Date(period.endDate);
+    for (let d = new Date(start); d <= end; d.setDate(d.getDate() + 1)) {
+      dailySpendingMap[d.toISOString().split('T')[0]] = 0;
+    }
+
+    transactions.forEach(t => {
+      const day = new Date(t.date).toISOString().split('T')[0];
+      if (dailySpendingMap[day] !== undefined) {
+        dailySpendingMap[day] += t.amount;
+      }
+    });
+
+    const dailySpending = Object.entries(dailySpendingMap).map(([date, amount]) => {
+      cumulative += amount;
+      return { date, amount, cumulative };
+    });
+
+    // 4. Historical Intelligence (Phase 3)
+    const previousPeriod = await prisma.budgetPeriod.findFirst({
+      where: {
+        userId: req.userId,
+        status: 'FINISHED',
+        endDate: { lt: period.startDate }
+      },
+      orderBy: { endDate: 'desc' },
+      include: { 
+        budgets: true
+      }
+    });
+
+    let previousPeriodSummary = null;
+    if (previousPeriod) {
+      // Simple sum for previous period (could be more thorough but this is a good start)
+      const prevTransactions = await prisma.transaction.aggregate({
+        where: {
+          wallet: { userId: req.userId },
+          date: {
+            gte: previousPeriod.startDate,
+            lte: previousPeriod.endDate,
+          },
+          type: 'EXPENSE',
+        },
+        _sum: { amount: true }
+      });
+
+      previousPeriodSummary = {
+        id: previousPeriod.id,
+        name: previousPeriod.name,
+        totalSpent: prevTransactions._sum.amount || 0,
+        totalLimit: previousPeriod.budgets.reduce((sum, b) => sum + b.limit, 0)
+      };
+    }
+
+    // 5. Deep Dives (Phase 2)
+    const topTransactions = [...transactions]
+      .sort((a, b) => b.amount - a.amount)
+      .slice(0, 5)
+      .map(t => ({
+        id: t.id,
+        description: t.description || t.category.name,
+        amount: t.amount,
+        date: t.date,
+        categoryName: t.category.name,
+        isFixed: !!(t.subscriptionId || t.creditId)
+      }));
+
+    const fixedSpent = transactions
+      .filter(t => t.subscriptionId || t.creditId)
+      .reduce((sum, t) => sum + t.amount, 0);
 
     res.json({
       periodName: period.name,
@@ -171,7 +248,14 @@ export const getPeriodAnalytics = async (req: AuthRequest, res: Response) => {
       endDate: period.endDate,
       totalLimit,
       totalSpent,
-      categories: analytics,
+      categories: categoryAnalytics,
+      dailySpending,
+      previousPeriodSummary,
+      topTransactions,
+      composition: {
+        fixed: fixedSpent,
+        variable: totalSpent - fixedSpent
+      }
     });
   } catch (error) {
     console.error('Get Period Analytics Error:', error);
