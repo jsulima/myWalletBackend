@@ -90,6 +90,7 @@ model Transaction {
   categoryId      String
   transferId      String?         // Kept for backward compatibility during migration
   creditId        String?
+  subscriptionId  String?
   amount          Float           // Source amount
   targetAmount    Float?          // Target amount (for TRANSFER)
   creditAmount    Float?          // Amount in credit currency (for credit payments)
@@ -104,6 +105,7 @@ model Transaction {
   category        Category        @relation(fields: [categoryId], references: [id], onDelete: Cascade)
   transfer        Transfer?       @relation(fields: [transferId], references: [id], onDelete: Cascade)
   credit          Credit?         @relation(fields: [creditId], references: [id], onDelete: SetNull)
+  subscription    Subscription?   @relation(fields: [subscriptionId], references: [id], onDelete: SetNull)
 }
 
 model Transfer {
@@ -209,6 +211,7 @@ model Subscription {
   user            User                  @relation(fields: [userId], references: [id], onDelete: Cascade)
   category        Category?             @relation(fields: [categoryId], references: [id], onDelete: SetNull)
   wallet          Wallet                @relation(fields: [walletId], references: [id], onDelete: Cascade)
+  transactions    Transaction[]
 
   @@index([userId, nextPaymentDate])
 }

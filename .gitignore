@@ -4,3 +4,6 @@ node_modules
 
 /generated/prisma
 dev.db
+
+# Do not push baseline migration to production
+prisma/migrations/0_baseline/

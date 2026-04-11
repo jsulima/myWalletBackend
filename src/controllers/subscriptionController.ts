@@ -77,6 +77,7 @@ export const createSubscription = async (req: AuthRequest, res: Response) => {
           data: {
             walletId: data.walletId,
             categoryId: data.categoryId || (await getDefaultCategoryId(req.userId!)),
+            subscriptionId: subscription.id,
             amount: convertedAmount,
             type: 'EXPENSE',
             description,
@@ -170,6 +171,7 @@ export const paySubscription = async (req: AuthRequest, res: Response) => {
         data: {
           walletId: subscription.walletId,
           categoryId: subscription.categoryId || (await getDefaultCategoryId(req.userId!)),
+          subscriptionId: id,
           amount: convertedAmount,
           type: 'EXPENSE',
           description,

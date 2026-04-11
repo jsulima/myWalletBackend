@@ -1,5 +1,6 @@
 import { Response } from 'express';
 import { prisma } from '../utils/db';
+import { Prisma } from '@prisma/client';
 import { z } from 'zod';
 import { AuthRequest } from '../middlewares/authMiddleware';
 
@@ -14,11 +15,12 @@ const transactionSchema = z.object({
   description: z.string().optional(),
   creditId: z.string().uuid().optional().nullable(),
   creditAmount: z.number().positive().optional().nullable(),
+  subscriptionId: z.string().uuid().optional().nullable(),
 });
 
 export const getTransactions = async (req: AuthRequest, res: Response) => {
   try {
-    const { walletId, creditId } = req.query;
+    const { walletId, creditId, subscriptionId } = req.query;
     
     // Ensure the wallet belongs to the user if walletId is provided
     if (walletId) {
@@ -38,28 +40,32 @@ export const getTransactions = async (req: AuthRequest, res: Response) => {
       }
     }
 
-    const transactions = await prisma.transaction.findMany({
-      where: creditId
+    // Ensure the subscription belongs to the user if subscriptionId is provided
+    if (subscriptionId) {
+      const subscription = await prisma.subscription.findUnique({ where: { id: String(subscriptionId) } });
+      if (!subscription || subscription.userId !== req.userId) {
+        res.status(403).json({ error: 'Access denied to this subscription' });
+        return;
+      }
+    }
+
+    const whereClause: Prisma.TransactionWhereInput = subscriptionId
+      ? { subscriptionId: String(subscriptionId) }
+      : creditId
         ? { creditId: String(creditId) }
-        : walletId 
-          ? { 
-              OR: [
-                { walletId: String(walletId) },
-                { targetWalletId: String(walletId) }
-              ]
-            }
-          : { 
-              OR: [
-                { wallet: { userId: req.userId } },
-                { AND: [{ targetWalletId: { not: null } }, { targetWallet: { userId: req.userId } }] }
-              ]
-            },
+        : walletId
+          ? { OR: [{ walletId: String(walletId) }, { targetWalletId: String(walletId) }] }
+          : { OR: [{ wallet: { userId: req.userId } }, { AND: [{ targetWalletId: { not: null } }, { targetWallet: { userId: req.userId } }] }] };
+
+    const transactions = await prisma.transaction.findMany({
+      where: whereClause,
       select: {
         id: true,
         walletId: true,
         targetWalletId: true,
         categoryId: true,
         transferId: true,
+        subscriptionId: true,
         amount: true,
         targetAmount: true,
         type: true,
@@ -291,6 +297,7 @@ export const updateTransaction = async (req: AuthRequest, res: Response) => {
 
       const newCreditId = data.creditId !== undefined ? data.creditId : oldTransaction.creditId;
       const newCreditAmount = data.creditAmount !== undefined ? data.creditAmount : oldTransaction.creditAmount;
+      const newSubscriptionId = data.subscriptionId !== undefined ? data.subscriptionId : oldTransaction.subscriptionId;
 
       // Handle Credit balance changes
       if (oldTransaction.creditId !== newCreditId || oldTransaction.creditAmount !== newCreditAmount) {
@@ -324,6 +331,7 @@ export const updateTransaction = async (req: AuthRequest, res: Response) => {
           ...data,
           creditId: newCreditId,
           creditAmount: newCreditAmount,
+          subscriptionId: newSubscriptionId,
           date: data.date ? new Date(data.date) : undefined,
         },
       });
