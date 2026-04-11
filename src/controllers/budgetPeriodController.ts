@@ -246,15 +246,15 @@ export const getPeriodAnalytics = async (req: AuthRequest, res: Response) => {
       periodName: period.name,
       startDate: period.startDate,
       endDate: period.endDate,
-      totalLimit,
-      totalSpent,
-      categories: categoryAnalytics,
-      dailySpending,
-      previousPeriodSummary,
-      topTransactions,
+      totalLimit: totalLimit || 0,
+      totalSpent: totalSpent || 0,
+      categories: categoryAnalytics || [],
+      dailySpending: dailySpending || [],
+      previousPeriodSummary: previousPeriodSummary || null,
+      topTransactions: topTransactions || [],
       composition: {
-        fixed: fixedSpent,
-        variable: totalSpent - fixedSpent
+        fixed: fixedSpent || 0,
+        variable: (totalSpent || 0) - (fixedSpent || 0)
       }
     });
   } catch (error) {
