@@ -2,6 +2,7 @@ import { Response } from 'express';
 import { prisma } from '../utils/db';
 import { z } from 'zod';
 import { AuthRequest } from '../middlewares/authMiddleware';
+import { getUSDRatesMap } from '../services/currencyService';
 
 const walletSchema = z.object({
   name: z.string().min(1),
@@ -106,5 +107,29 @@ export const reorderWallets = async (req: AuthRequest, res: Response) => {
     res.json({ message: 'Wallets reordered successfully' });
   } catch (error) {
     res.status(500).json({ error: 'Failed to reorder wallets' });
+  }
+};
+
+export const getWalletsSummary = async (req: AuthRequest, res: Response) => {
+  try {
+    const wallets = await prisma.wallet.findMany({
+      where: { userId: req.userId },
+    });
+
+    const ratesMap = await getUSDRatesMap();
+    
+    const totalBalanceUSD = wallets.reduce((sum, wallet) => {
+      const rate = ratesMap[wallet.currency] || 1;
+      return sum + (wallet.balance * rate);
+    }, 0);
+
+    res.json({
+      totalBalanceUSD,
+      currency: 'USD',
+      walletCount: wallets.length,
+    });
+  } catch (error) {
+    console.error('Get Wallets Summary Error:', error);
+    res.status(500).json({ error: 'Failed to fetch wallet summary' });
   }
 };

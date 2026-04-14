@@ -2,6 +2,7 @@ import { Response } from 'express';
 import { prisma } from '../utils/db';
 import { z } from 'zod';
 import { AuthRequest } from '../middlewares/authMiddleware';
+import { getUSDRatesMap } from '../services/currencyService';
 
 const budgetPeriodSchema = z.object({
   name: z.string().min(1).max(100),
@@ -131,6 +132,9 @@ export const getPeriodAnalytics = async (req: AuthRequest, res: Response) => {
       return;
     }
 
+    // 0. Fetch Rates for USD conversion
+    const ratesMap = await getUSDRatesMap();
+
     // 1. Get all transactions for the period
     const transactions = await (prisma.transaction.findMany({
       where: {
@@ -145,28 +149,51 @@ export const getPeriodAnalytics = async (req: AuthRequest, res: Response) => {
       orderBy: { date: 'asc' }
     }) as Promise<any[]>);
 
-    // 2. Calculate Category analytics
+    // 1.1 Get all income transactions for the period
+    const incomeTransactions = await (prisma.transaction.findMany({
+      where: {
+        wallet: { userId: req.userId },
+        date: {
+          gte: period.startDate,
+          lte: period.endDate,
+        },
+        type: 'INCOME',
+      },
+      include: { wallet: true },
+    }) as Promise<any[]>);
+
+    const totalIncome = incomeTransactions.reduce((sum, t) => {
+      const rate = ratesMap[t.wallet.currency] || 1;
+      return sum + (t.amount * rate);
+    }, 0);
+
+    // 2. Calculate Category analytics in USD
     const budgets = (period as any).budgets || [];
     const categoryAnalytics = budgets.map((budget: any) => {
-      const spent = transactions
+      const spentUSD = transactions
         .filter((t: any) => t.categoryId === budget.categoryId)
-        .reduce((sum: number, t: any) => sum + t.amount, 0);
+        .reduce((sum: number, t: any) => {
+          const rate = ratesMap[t.wallet.currency] || 1;
+          return sum + (t.amount * rate);
+        }, 0);
+
+      const limitUSD = budget.limit * (ratesMap[budget.currency] || 1);
 
       return {
         categoryId: budget.categoryId,
         categoryName: budget.category.name,
         color: budget.category.color,
-        limit: budget.limit,
-        spent,
-        currency: budget.currency,
-        percentage: budget.limit > 0 ? (spent / budget.limit) * 100 : 0,
+        limit: limitUSD,
+        spent: spentUSD,
+        currency: 'USD',
+        percentage: limitUSD > 0 ? (spentUSD / limitUSD) * 100 : 0,
       };
     });
 
-    const totalLimit = budgets.reduce((sum: number, b: any) => sum + b.limit, 0);
+    const totalLimit = categoryAnalytics.reduce((sum: number, b: any) => sum + b.limit, 0);
     const totalSpent = categoryAnalytics.reduce((sum: number, a: any) => sum + a.spent, 0);
 
-    // 3. Daily Spending Dynamics (Phase 1)
+    // 3. Daily Spending Dynamics in USD
     const dailySpendingMap: Record<string, number> = {};
     let cumulative = 0;
     
@@ -180,7 +207,8 @@ export const getPeriodAnalytics = async (req: AuthRequest, res: Response) => {
     transactions.forEach(t => {
       const day = new Date(t.date).toISOString().split('T')[0];
       if (dailySpendingMap[day] !== undefined) {
-        dailySpendingMap[day] += t.amount;
+        const rate = ratesMap[t.wallet.currency] || 1;
+        dailySpendingMap[day] += t.amount * rate;
       }
     });
 
@@ -189,7 +217,7 @@ export const getPeriodAnalytics = async (req: AuthRequest, res: Response) => {
       return { date, amount, cumulative };
     });
 
-    // 4. Historical Intelligence (Phase 3)
+    // 4. Historical Intelligence (Period-over-Period) in USD
     const previousPeriod = await prisma.budgetPeriod.findFirst({
       where: {
         userId: req.userId,
@@ -204,8 +232,8 @@ export const getPeriodAnalytics = async (req: AuthRequest, res: Response) => {
 
     let previousPeriodSummary = null;
     if (previousPeriod) {
-      // Simple sum for previous period (could be more thorough but this is a good start)
-      const prevTransactions = await prisma.transaction.aggregate({
+      // Fetch previous period transactions to convert to USD
+      const prevTransactions = await prisma.transaction.findMany({
         where: {
           wallet: { userId: req.userId },
           date: {
@@ -214,33 +242,51 @@ export const getPeriodAnalytics = async (req: AuthRequest, res: Response) => {
           },
           type: 'EXPENSE',
         },
-        _sum: { amount: true }
+        include: { wallet: true }
       });
+
+      const prevSpentUSD = prevTransactions.reduce((sum, t) => {
+        const rate = ratesMap[t.wallet.currency] || 1;
+        return sum + (t.amount * rate);
+      }, 0);
+
+      const prevLimitUSD = previousPeriod.budgets.reduce((sum, b) => {
+        const rate = ratesMap[b.currency] || 1;
+        return sum + (b.limit * rate);
+      }, 0);
 
       previousPeriodSummary = {
         id: previousPeriod.id,
         name: previousPeriod.name,
-        totalSpent: prevTransactions._sum.amount || 0,
-        totalLimit: previousPeriod.budgets.reduce((sum, b) => sum + b.limit, 0)
+        totalSpent: prevSpentUSD,
+        totalLimit: prevLimitUSD
       };
     }
 
-    // 5. Deep Dives (Phase 2)
-    const topTransactions = [...transactions]
+    // 5. Deep Dives (Top Hits) in USD
+    const topTransactions = transactions
+      .map(t => {
+        const rate = ratesMap[t.wallet.currency] || 1;
+        return {
+          id: t.id,
+          description: t.description || t.category.name,
+          amount: t.amount * rate,
+          originalAmount: t.amount,
+          originalCurrency: t.wallet.currency,
+          date: t.date,
+          categoryName: t.category.name,
+          isFixed: !!(t.subscriptionId || t.creditId)
+        };
+      })
       .sort((a, b) => b.amount - a.amount)
-      .slice(0, 5)
-      .map(t => ({
-        id: t.id,
-        description: t.description || t.category.name,
-        amount: t.amount,
-        date: t.date,
-        categoryName: t.category.name,
-        isFixed: !!(t.subscriptionId || t.creditId)
-      }));
+      .slice(0, 5);
 
     const fixedSpent = transactions
       .filter(t => t.subscriptionId || t.creditId)
-      .reduce((sum, t) => sum + t.amount, 0);
+      .reduce((sum, t) => {
+        const rate = ratesMap[t.wallet.currency] || 1;
+        return sum + (t.amount * rate);
+      }, 0);
 
     res.json({
       periodName: period.name,
@@ -248,6 +294,8 @@ export const getPeriodAnalytics = async (req: AuthRequest, res: Response) => {
       endDate: period.endDate,
       totalLimit: totalLimit || 0,
       totalSpent: totalSpent || 0,
+      totalIncome: totalIncome || 0,
+      currency: 'USD',
       categories: categoryAnalytics || [],
       dailySpending: dailySpending || [],
       previousPeriodSummary: previousPeriodSummary || null,

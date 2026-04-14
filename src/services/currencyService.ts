@@ -95,3 +95,24 @@ export const convertAmount = async (amount: number, from: string, to: string): P
     rate: rateObj.rate,
   };
 };
+
+export const getUSDRatesMap = async (): Promise<Record<string, number>> => {
+  const rates = await fetchCurrencyRates();
+  const map: Record<string, number> = { 'USD': 1 };
+  
+  // Extract all rates that have to: 'USD'
+  rates.forEach(r => {
+    if (r.to === 'USD') {
+      map[r.from] = r.rate;
+    }
+  });
+
+  // If some are missing (e.g. we only have r.from === 'USD'), calculate inverse
+  rates.forEach(r => {
+    if (r.from === 'USD' && !map[r.to]) {
+      map[r.to] = 1 / r.rate;
+    }
+  });
+
+  return map;
+};
