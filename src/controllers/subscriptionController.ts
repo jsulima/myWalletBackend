@@ -12,6 +12,7 @@ const subscriptionSchema = z.object({
   frequency: z.nativeEnum(SubscriptionFrequency).optional().default(SubscriptionFrequency.MONTHLY),
   status: z.nativeEnum(SubscriptionStatus).optional().default(SubscriptionStatus.ACTIVE),
   startDate: z.string().datetime().optional(),
+  nextPaymentDate: z.string().datetime().optional().nullable(),
   categoryId: z.string().uuid().optional().nullable(),
   walletId: z.string().uuid(),
   note: z.string().optional().nullable(),
@@ -27,8 +28,36 @@ export const getSubscriptions = async (req: AuthRequest, res: Response) => {
       },
       orderBy: { nextPaymentDate: 'asc' },
     });
+
+    // SELF-HEALING: Check and repair stale subscriptions (due today or in the past)
+    // This addresses "current user situations" by syncing with transaction history on the fly.
+    const today = new Date();
+    today.setHours(0, 0, 0, 0);
+
+    const staleSubs = subscriptions.filter(sub => {
+        const nextDate = new Date(sub.nextPaymentDate);
+        nextDate.setHours(0, 0, 0, 0);
+        return nextDate <= today;
+    });
+
+    if (staleSubs.length > 0) {
+        await Promise.all(staleSubs.map(sub => recalculateSubscriptionNextPaymentDate(prisma, sub.id)));
+        
+        // Refetch subscriptions after repair to return accurate data
+        const updatedSubscriptions = await prisma.subscription.findMany({
+            where: { userId: req.userId },
+            include: { 
+              category: true,
+              wallet: true 
+            },
+            orderBy: { nextPaymentDate: 'asc' },
+        });
+        return res.json(updatedSubscriptions);
+    }
+
     res.json(subscriptions);
   } catch (error) {
+    console.error('Error fetching subscriptions:', error);
     res.status(500).json({ error: 'Failed to fetch subscriptions' });
   }
 };
@@ -119,7 +148,13 @@ export const updateSubscription = async (req: AuthRequest, res: Response) => {
     if (!existing || existing.userId !== req.userId) return res.status(404).json({ error: 'Not found' });
 
     let nextPaymentDate = existing.nextPaymentDate;
-    if (data.frequency || data.startDate) {
+    
+    // 1. If manual nextPaymentDate provided, prioritize it
+    if (data.nextPaymentDate) {
+        nextPaymentDate = new Date(data.nextPaymentDate);
+    } 
+    // 2. Otherwise, if frequency or startDate changed, recalculate
+    else if (data.frequency || data.startDate) {
         const start = data.startDate ? new Date(data.startDate) : existing.startDate;
         const freq = data.frequency || existing.frequency;
         nextPaymentDate = calculateNextPaymentDate(start, freq);
@@ -135,7 +170,8 @@ export const updateSubscription = async (req: AuthRequest, res: Response) => {
     });
     res.json(updated);
   } catch (error) {
-    res.status(500).json({ error: 'Failed' });
+    console.error('Error updating subscription:', error);
+    res.status(500).json({ error: 'Failed to update subscription' });
   }
 };
 
