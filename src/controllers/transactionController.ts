@@ -1,5 +1,6 @@
 import { Response } from 'express';
 import { prisma } from '../utils/db';
+import { recalculateSubscriptionNextPaymentDate } from './subscriptionController';
 import { Prisma } from '@prisma/client';
 import { z } from 'zod';
 import { AuthRequest } from '../middlewares/authMiddleware';
@@ -152,6 +153,10 @@ export const createTransaction = async (req: AuthRequest, res: Response) => {
         });
       }
 
+      if (data.subscriptionId) {
+        await recalculateSubscriptionNextPaymentDate(tx, data.subscriptionId);
+      }
+
       return transaction;
     });
 
@@ -214,6 +219,11 @@ export const deleteTransaction = async (req: AuthRequest, res: Response) => {
             remainingAmount: { increment: transaction.creditAmount },
           },
         });
+      }
+
+      // Revert/Sync Subscription nextPaymentDate
+      if (transaction.subscriptionId) {
+        await recalculateSubscriptionNextPaymentDate(tx, transaction.subscriptionId);
       }
     });
 
@@ -335,6 +345,14 @@ export const updateTransaction = async (req: AuthRequest, res: Response) => {
           date: data.date ? new Date(data.date) : undefined,
         },
       });
+
+      // 4. Sync Subscriptions (handles old/new/date changes)
+      if (oldTransaction.subscriptionId) {
+        await recalculateSubscriptionNextPaymentDate(tx, oldTransaction.subscriptionId);
+      }
+      if (newSubscriptionId && newSubscriptionId !== oldTransaction.subscriptionId) {
+        await recalculateSubscriptionNextPaymentDate(tx, newSubscriptionId);
+      }
 
       return updated;
     });

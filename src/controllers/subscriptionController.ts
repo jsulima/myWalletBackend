@@ -48,7 +48,7 @@ export const createSubscription = async (req: AuthRequest, res: Response) => {
 
     const result = await prisma.$transaction(async (tx: any) => {
       // 1. Create the subscription
-      const subscription = await tx.subscription.create({
+          const subscription = await tx.subscription.create({
         data: {
           name: data.name,
           amount: data.amount,
@@ -56,15 +56,15 @@ export const createSubscription = async (req: AuthRequest, res: Response) => {
           frequency: data.frequency || SubscriptionFrequency.MONTHLY,
           status: data.status || SubscriptionStatus.ACTIVE,
           startDate,
-          nextPaymentDate: isInitialPayment ? calculateNextPaymentDate(nextPaymentDate, data.frequency || SubscriptionFrequency.MONTHLY) : nextPaymentDate,
+          nextPaymentDate: nextPaymentDate,
           categoryId: data.categoryId,
           walletId: data.walletId,
           note: data.note,
           userId: req.userId!,
         },
       });
-
-      // 2. If initial payment, create a transaction
+      
+      // 2. If initial payment, create a transaction and then sync the date
       if (isInitialPayment) {
         const wallet = await tx.wallet.findUnique({ where: { id: data.walletId } });
         const { convertedAmount, rate } = await convertAmount(data.amount, data.currency, wallet.currency);
@@ -90,9 +90,13 @@ export const createSubscription = async (req: AuthRequest, res: Response) => {
           where: { id: data.walletId },
           data: { balance: { decrement: convertedAmount } }
         });
+        
+        // 4. Sync Next Payment Date based on the transaction we just created
+        await recalculateSubscriptionNextPaymentDate(tx, subscription.id);
       }
 
-      return subscription;
+      const refreshed = await tx.subscription.findUnique({ where: { id: subscription.id } });
+      return refreshed;
     });
 
     res.status(201).json(result);
@@ -186,11 +190,8 @@ export const paySubscription = async (req: AuthRequest, res: Response) => {
       });
 
       // 3. Update Next Payment Date
-      const nextDate = calculateNextPaymentDate(new Date(subscription.nextPaymentDate), subscription.frequency);
-      const updated = await tx.subscription.update({
-        where: { id },
-        data: { nextPaymentDate: nextDate }
-      });
+      await recalculateSubscriptionNextPaymentDate(tx, id);
+      const updated = await tx.subscription.findUnique({ where: { id } });
 
       return updated;
     });
@@ -210,19 +211,48 @@ async function getDefaultCategoryId(userId: string): Promise<string> {
     return category?.id || '';
 }
 
-function calculateNextPaymentDate(startDate: Date, frequency: SubscriptionFrequency): Date {
+export async function recalculateSubscriptionNextPaymentDate(tx: any, subscriptionId: string) {
+    const sub = await tx.subscription.findUnique({ where: { id: subscriptionId } });
+    if (!sub) return;
+    
+    // Find the latest transaction for this subscription
+    const latestTransaction = await tx.transaction.findFirst({
+        where: { subscriptionId: subscriptionId },
+        orderBy: { date: 'desc' }
+    });
+    
+    let baseDate = sub.startDate;
+    let inclusive = true;
+    
+    if (latestTransaction) {
+        baseDate = latestTransaction.date;
+        inclusive = false; // We want the next one after the latest payment
+    }
+    
+    const nextDate = calculateNextPaymentDate(baseDate, sub.frequency, inclusive);
+    return await tx.subscription.update({
+        where: { id: subscriptionId },
+        data: { nextPaymentDate: nextDate }
+    });
+}
+
+export function calculateNextPaymentDate(startDate: Date, frequency: SubscriptionFrequency, inclusive = true): Date {
     const next = new Date(startDate);
     const today = new Date();
     
     // Set to start of day for comparison
     today.setHours(0, 0, 0, 0);
     
-    // If start date is in the future, that's the next payment date
-    if (next > today) return next;
+    // If inclusive is true, we want the FIRST date that is TODAY or in the FUTURE
+    // If inclusive is false, we want the FIRST date that is STRICTLY in the FUTURE
+    
+    if (inclusive) {
+        if (next >= today) return next;
+    } else {
+        if (next > today) return next;
+    }
 
-    // Otherwise, find the next occurrence from today
-    // We want the FIRST date that is TODAY or in the FUTURE
-    while (next < today) {
+    while (inclusive ? next < today : next <= today) {
         switch (frequency) {
             case SubscriptionFrequency.DAILY:
                 next.setDate(next.getDate() + 1);
