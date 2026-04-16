@@ -238,9 +238,9 @@ export async function recalculateSubscriptionNextPaymentDate(tx: any, subscripti
 
 export function calculateNextPaymentDate(startDate: Date, frequency: SubscriptionFrequency, inclusive = true): Date {
     const next = new Date(startDate);
+    next.setHours(0, 0, 0, 0); // Normalize to start of day
+
     const today = new Date();
-    
-    // Set to start of day for comparison
     today.setHours(0, 0, 0, 0);
     
     // If inclusive is true, we want the FIRST date that is TODAY or in the FUTURE
