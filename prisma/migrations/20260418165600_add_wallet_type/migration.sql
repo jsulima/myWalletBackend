@@ -1,0 +1,2 @@
+-- AlterTable
+ALTER TABLE `Wallet` ADD COLUMN `type` ENUM('CASH', 'CARD') NOT NULL DEFAULT 'CASH';

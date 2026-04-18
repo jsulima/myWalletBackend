@@ -26,12 +26,18 @@ model User {
   subscriptions Subscription[]
 }
 
+enum WalletType {
+  CASH
+  CARD
+}
+
 model Wallet {
   id           String        @id @default(uuid())
   userId       String
   name         String
   balance      Float         @default(0)
   currency     String        @default("USD")
+  type         WalletType    @default(CASH)
   order        Int           @default(0)
   createdAt    DateTime      @default(now())
   updatedAt    DateTime      @updatedAt
