@@ -14,6 +14,8 @@ const creditSchema = z.object({
   monthlyPayment: z.number().optional(),
   dueDate: z.string().datetime().optional(),
   currency: z.string().optional().default('USD'),
+  status: z.string().optional(),
+  commission: z.number().optional(),
 });
 
 export const getCredits = async (req: AuthRequest, res: Response) => {
@@ -40,7 +42,9 @@ export const createCredit = async (req: AuthRequest, res: Response) => {
         monthlyPayment: data.monthlyPayment ?? 0,
         currency: data.currency,
         dueDate: data.dueDate ? new Date(data.dueDate) : undefined,
-      },
+        status: (data.status as any) || 'ACTIVE',
+        commission: (data.commission as any) || 0,
+      } as any,
     });
     res.status(201).json(credit);
   } catch (error) {
@@ -64,7 +68,7 @@ export const updateCredit = async (req: AuthRequest, res: Response) => {
       data: {
          ...data,
          dueDate: data.dueDate ? new Date(data.dueDate) : undefined,
-      },
+      } as any,
     });
     res.json(updated);
   } catch (error) {
