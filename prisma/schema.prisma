@@ -39,6 +39,7 @@ model Wallet {
   currency     String        @default("USD")
   type         WalletType    @default(CASH)
   order        Int           @default(0)
+  color        String        @default("#6366f1")
   createdAt    DateTime      @default(now())
   updatedAt    DateTime      @updatedAt
 

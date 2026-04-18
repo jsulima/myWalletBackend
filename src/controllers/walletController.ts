@@ -9,6 +9,7 @@ const walletSchema = z.object({
   balance: z.number().optional(),
   currency: z.string().optional(),
   type: z.enum(['CASH', 'CARD']).optional(),
+  color: z.string().optional(),
 });
 
 export const getWallets = async (req: AuthRequest, res: Response) => {
@@ -28,7 +29,7 @@ export const getWallets = async (req: AuthRequest, res: Response) => {
 
 export const createWallet = async (req: AuthRequest, res: Response) => {
   try {
-    const { name, balance, currency, type } = walletSchema.parse(req.body);
+    const { name, balance, currency, type, color } = walletSchema.parse(req.body);
     const wallet = await prisma.wallet.create({
       data: {
         userId: req.userId!,
@@ -36,6 +37,7 @@ export const createWallet = async (req: AuthRequest, res: Response) => {
         balance: balance ?? 0,
         currency: currency ?? 'USD',
         type: type ?? 'CASH',
+        color: color ?? '#6366f1',
       },
     });
     res.status(201).json(wallet);
