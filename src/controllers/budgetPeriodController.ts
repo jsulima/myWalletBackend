@@ -194,27 +194,39 @@ export const getPeriodAnalytics = async (req: AuthRequest, res: Response) => {
     const totalSpent = categoryAnalytics.reduce((sum: number, a: any) => sum + a.spent, 0);
 
     // 3. Daily Spending Dynamics in USD
-    const dailySpendingMap: Record<string, number> = {};
+    const dailySpendingMap: Record<string, any> = {};
     let cumulative = 0;
     
     // Initialize map with all days in period
     const start = new Date(period.startDate);
     const end = new Date(period.endDate);
     for (let d = new Date(start); d <= end; d.setDate(d.getDate() + 1)) {
-      dailySpendingMap[d.toISOString().split('T')[0]] = 0;
+      dailySpendingMap[d.toISOString().split('T')[0]] = { total: 0 };
     }
 
     transactions.forEach(t => {
       const day = new Date(t.date).toISOString().split('T')[0];
       if (dailySpendingMap[day] !== undefined) {
         const rate = ratesMap[t.wallet.currency] || 1;
-        dailySpendingMap[day] += t.amount * rate;
+        const amountUSD = t.amount * rate;
+        dailySpendingMap[day].total += amountUSD;
+        
+        const catId = t.categoryId;
+        if (!dailySpendingMap[day][catId]) {
+          dailySpendingMap[day][catId] = 0;
+        }
+        dailySpendingMap[day][catId] += amountUSD;
       }
     });
 
-    const dailySpending = Object.entries(dailySpendingMap).map(([date, amount]) => {
-      cumulative += amount;
-      return { date, amount, cumulative };
+    const dailySpending = Object.entries(dailySpendingMap).map(([date, data]) => {
+      cumulative += data.total;
+      return { 
+        date, 
+        amount: data.total, 
+        cumulative,
+        ...data 
+      };
     });
 
     // 4. Historical Intelligence (Period-over-Period) in USD
