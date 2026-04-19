@@ -8,7 +8,7 @@ import { convertAmount } from '../services/currencyService';
 const subscriptionSchema = z.object({
   name: z.string().min(1),
   amount: z.number().positive(),
-  currency: z.string().optional().default('USD'),
+  currency: z.string().optional(),
   frequency: z.nativeEnum(SubscriptionFrequency).optional().default(SubscriptionFrequency.MONTHLY),
   status: z.nativeEnum(SubscriptionStatus).optional().default(SubscriptionStatus.ACTIVE),
   startDate: z.string().datetime().optional(),
@@ -96,10 +96,13 @@ export const createSubscription = async (req: AuthRequest, res: Response) => {
       // 2. If initial payment, create a transaction and then sync the date
       if (isInitialPayment) {
         const wallet = await tx.wallet.findUnique({ where: { id: data.walletId } });
-        const { convertedAmount, rate } = await convertAmount(data.amount, data.currency, wallet.currency);
+        if (!wallet) throw new Error('Wallet not found');
+
+        const subscriptionCurrency = subscription.currency || 'USD';
+        const { convertedAmount, rate } = await convertAmount(data.amount, subscriptionCurrency, wallet.currency);
         
-        const description = data.currency !== wallet.currency
-          ? `Subscription: ${data.name} (${data.amount} ${data.currency} at rate ${rate.toFixed(2)})`
+        const description = subscriptionCurrency !== wallet.currency
+          ? `Subscription: ${data.name} (${data.amount} ${subscriptionCurrency} at rate ${rate.toFixed(2)})`
           : `Subscription: ${data.name}`;
 
         await tx.transaction.create({

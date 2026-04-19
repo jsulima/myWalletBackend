@@ -13,7 +13,7 @@ const creditSchema = z.object({
   interestRate: z.number().optional(),
   monthlyPayment: z.number().optional(),
   dueDate: z.string().datetime().optional(),
-  currency: z.string().optional().default('USD'),
+  currency: z.string().optional(),
   status: z.string().optional(),
   commission: z.number().optional(),
 });

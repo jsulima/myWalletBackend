@@ -7,7 +7,7 @@ const savingSchema = z.object({
   name: z.string().min(1),
   targetAmount: z.number().positive(),
   currentAmount: z.number().optional(),
-  currency: z.string().optional().default('USD'),
+  currency: z.string().optional(),
   deadline: z.string().datetime().optional(),
 });
 
