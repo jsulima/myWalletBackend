@@ -67,13 +67,16 @@ export const getTransactions = async (req: AuthRequest, res: Response) => {
         targetWalletId: true,
         categoryId: true,
         transferId: true,
+        creditId: true,
         subscriptionId: true,
         plannedExpenseId: true,
         amount: true,
         targetAmount: true,
+        creditAmount: true,
         type: true,
         date: true,
         description: true,
+        createdAt: true,
         category: true,
         wallet: {
           select: {
