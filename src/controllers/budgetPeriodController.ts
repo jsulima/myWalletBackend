@@ -243,9 +243,10 @@ export const getPeriodAnalytics = async (req: AuthRequest, res: Response) => {
     });
 
     let previousPeriodSummary = null;
+    let prevTransactions: any[] | null = null;
     if (previousPeriod) {
       // Fetch previous period transactions to convert to USD
-      const prevTransactions = await prisma.transaction.findMany({
+      prevTransactions = await (prisma.transaction.findMany({
         where: {
           wallet: { userId: req.userId },
           date: {
@@ -255,7 +256,7 @@ export const getPeriodAnalytics = async (req: AuthRequest, res: Response) => {
           type: 'EXPENSE',
         },
         include: { wallet: true }
-      });
+      }) as Promise<any[]>);
 
       const prevSpentUSD = prevTransactions.reduce((sum, t) => {
         const rate = ratesMap[t.wallet.currency] || 1;
@@ -274,6 +275,42 @@ export const getPeriodAnalytics = async (req: AuthRequest, res: Response) => {
         totalLimit: prevLimitUSD
       };
     }
+
+    // Planned Expenses Analytics
+    const allPlannedExpenses = await prisma.plannedExpense.findMany({
+      where: { userId: req.userId },
+    });
+
+    const plannedExpensesAnalytics = allPlannedExpenses.map(pe => {
+      // Find transactions in CURRENT period
+      const currentTransactions = transactions.filter(t => t.plannedExpenseId === pe.id);
+      const currentSpent = currentTransactions.reduce((sum, t) => {
+        const rate = ratesMap[t.wallet.currency] || 1;
+        return sum + (t.amount * rate);
+      }, 0);
+
+      // Find transactions in PREVIOUS period (if any)
+      let prevSpent = null;
+      let prevCount = null;
+      if (previousPeriodSummary && prevTransactions) {
+        const pTx = prevTransactions.filter(t => t.plannedExpenseId === pe.id);
+        prevCount = pTx.length;
+        prevSpent = pTx.reduce((sum, t) => {
+          const rate = ratesMap[t.wallet.currency] || 1;
+          return sum + (t.amount * rate);
+        }, 0);
+      }
+
+      return {
+        id: pe.id,
+        name: pe.name,
+        expectedAmountUSD: pe.expectedAmount * (ratesMap[pe.currency] || 1),
+        currentSpent,
+        currentCount: currentTransactions.length,
+        prevSpent,
+        prevCount,
+      };
+    }).filter(p => p.currentCount > 0 || (p.prevCount && p.prevCount > 0));
 
     // 5. Deep Dives (Top Hits) in USD
     const topTransactions = transactions
@@ -312,6 +349,7 @@ export const getPeriodAnalytics = async (req: AuthRequest, res: Response) => {
       dailySpending: dailySpending || [],
       previousPeriodSummary: previousPeriodSummary || null,
       topTransactions: topTransactions || [],
+      plannedExpenses: plannedExpensesAnalytics || [],
       composition: {
         fixed: fixedSpent || 0,
         variable: (totalSpent || 0) - (fixedSpent || 0)

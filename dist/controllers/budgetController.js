@@ -10,7 +10,7 @@ const budgetSchema = zod_1.z.object({
     endDate: zod_1.z.string().datetime(),
     status: zod_1.z.enum(['DRAFT', 'ACTIVE', 'FINISHED']).optional(),
     note: zod_1.z.string().max(500).optional(),
-    currency: zod_1.z.string().optional().default('USD'),
+    currency: zod_1.z.string().optional(),
     periodId: zod_1.z.string().uuid().optional(),
 });
 const updateBudgetSchema = zod_1.z.object({

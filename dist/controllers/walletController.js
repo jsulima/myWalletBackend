@@ -1,12 +1,15 @@
 "use strict";
 Object.defineProperty(exports, "__esModule", { value: true });
-exports.reorderWallets = exports.deleteWallet = exports.updateWallet = exports.createWallet = exports.getWallets = void 0;
+exports.getWalletsSummary = exports.reorderWallets = exports.deleteWallet = exports.updateWallet = exports.createWallet = exports.getWallets = void 0;
 const db_1 = require("../utils/db");
 const zod_1 = require("zod");
+const currencyService_1 = require("../services/currencyService");
 const walletSchema = zod_1.z.object({
     name: zod_1.z.string().min(1),
     balance: zod_1.z.number().optional(),
     currency: zod_1.z.string().optional(),
+    type: zod_1.z.enum(['CASH', 'CARD']).optional(),
+    color: zod_1.z.string().optional(),
 });
 const getWallets = async (req, res) => {
     try {
@@ -26,13 +29,15 @@ const getWallets = async (req, res) => {
 exports.getWallets = getWallets;
 const createWallet = async (req, res) => {
     try {
-        const { name, balance, currency } = walletSchema.parse(req.body);
+        const { name, balance, currency, type, color } = walletSchema.parse(req.body);
         const wallet = await db_1.prisma.wallet.create({
             data: {
                 userId: req.userId,
                 name,
                 balance: balance ?? 0,
                 currency: currency ?? 'USD',
+                type: type ?? 'CASH',
+                color: color ?? '#6366f1',
             },
         });
         res.status(201).json(wallet);
@@ -106,3 +111,25 @@ const reorderWallets = async (req, res) => {
     }
 };
 exports.reorderWallets = reorderWallets;
+const getWalletsSummary = async (req, res) => {
+    try {
+        const wallets = await db_1.prisma.wallet.findMany({
+            where: { userId: req.userId },
+        });
+        const ratesMap = await (0, currencyService_1.getUSDRatesMap)();
+        const totalBalanceUSD = wallets.reduce((sum, wallet) => {
+            const rate = ratesMap[wallet.currency] || 1;
+            return sum + (wallet.balance * rate);
+        }, 0);
+        res.json({
+            totalBalanceUSD,
+            currency: 'USD',
+            walletCount: wallets.length,
+        });
+    }
+    catch (error) {
+        console.error('Get Wallets Summary Error:', error);
+        res.status(500).json({ error: 'Failed to fetch wallet summary' });
+    }
+};
+exports.getWalletsSummary = getWalletsSummary;

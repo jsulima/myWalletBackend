@@ -12,7 +12,9 @@ const creditSchema = zod_1.z.object({
     interestRate: zod_1.z.number().optional(),
     monthlyPayment: zod_1.z.number().optional(),
     dueDate: zod_1.z.string().datetime().optional(),
-    currency: zod_1.z.string().optional().default('USD'),
+    currency: zod_1.z.string().optional(),
+    status: zod_1.z.string().optional(),
+    commission: zod_1.z.number().optional(),
 });
 const getCredits = async (req, res) => {
     try {
@@ -39,6 +41,8 @@ const createCredit = async (req, res) => {
                 monthlyPayment: data.monthlyPayment ?? 0,
                 currency: data.currency,
                 dueDate: data.dueDate ? new Date(data.dueDate) : undefined,
+                status: data.status || 'ACTIVE',
+                commission: data.commission || 0,
             },
         });
         res.status(201).json(credit);
@@ -156,23 +160,3 @@ const payCredit = async (req, res) => {
     }
 };
 exports.payCredit = payCredit;
-const deleteCredit = async (req, res) => {
-    try {
-        const id = String(req.params.id);
-        const credit = await db_1.prisma.credit.findUnique({
-            where: { id },
-        });
-        if (!credit || credit.userId !== req.userId) {
-            res.status(404).json({ error: 'Credit not found or access denied' });
-            return;
-        }
-        await db_1.prisma.credit.delete({
-            where: { id },
-        });
-        res.json({ message: 'Credit deleted successfully' });
-    }
-    catch (error) {
-        res.status(500).json({ error: 'Failed to delete credit' });
-    }
-};
-exports.deleteCredit = deleteCredit;

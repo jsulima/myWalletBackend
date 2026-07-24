@@ -17,6 +17,7 @@ const transactionSchema = z.object({
   creditId: z.string().uuid().optional().nullable(),
   creditAmount: z.number().positive().optional().nullable(),
   subscriptionId: z.string().uuid().optional().nullable(),
+  plannedExpenseId: z.string().uuid().optional().nullable(),
 });
 
 export const getTransactions = async (req: AuthRequest, res: Response) => {
@@ -67,6 +68,7 @@ export const getTransactions = async (req: AuthRequest, res: Response) => {
         categoryId: true,
         transferId: true,
         subscriptionId: true,
+        plannedExpenseId: true,
         amount: true,
         targetAmount: true,
         type: true,
@@ -339,9 +341,10 @@ export const updateTransaction = async (req: AuthRequest, res: Response) => {
         where: { id },
         data: {
           ...data,
-          creditId: newCreditId,
-          creditAmount: newCreditAmount,
-          subscriptionId: newSubscriptionId,
+          creditId: data.creditId,
+          creditAmount: data.creditAmount,
+          subscriptionId: data.subscriptionId,
+          plannedExpenseId: data.plannedExpenseId,
           date: data.date ? new Date(data.date) : undefined,
         },
       });

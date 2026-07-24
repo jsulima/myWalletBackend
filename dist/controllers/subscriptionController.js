@@ -1,6 +1,8 @@
 "use strict";
 Object.defineProperty(exports, "__esModule", { value: true });
 exports.paySubscription = exports.deleteSubscription = exports.updateSubscription = exports.createSubscription = exports.getSubscriptions = void 0;
+exports.recalculateSubscriptionNextPaymentDate = recalculateSubscriptionNextPaymentDate;
+exports.calculateNextPaymentDate = calculateNextPaymentDate;
 const db_1 = require("../utils/db");
 const zod_1 = require("zod");
 const client_1 = require("@prisma/client");
@@ -8,10 +10,11 @@ const currencyService_1 = require("../services/currencyService");
 const subscriptionSchema = zod_1.z.object({
     name: zod_1.z.string().min(1),
     amount: zod_1.z.number().positive(),
-    currency: zod_1.z.string().optional().default('USD'),
+    currency: zod_1.z.string().optional(),
     frequency: zod_1.z.nativeEnum(client_1.SubscriptionFrequency).optional().default(client_1.SubscriptionFrequency.MONTHLY),
     status: zod_1.z.nativeEnum(client_1.SubscriptionStatus).optional().default(client_1.SubscriptionStatus.ACTIVE),
     startDate: zod_1.z.string().datetime().optional(),
+    nextPaymentDate: zod_1.z.string().datetime().optional().nullable(),
     categoryId: zod_1.z.string().uuid().optional().nullable(),
     walletId: zod_1.z.string().uuid(),
     note: zod_1.z.string().optional().nullable(),
@@ -26,9 +29,32 @@ const getSubscriptions = async (req, res) => {
             },
             orderBy: { nextPaymentDate: 'asc' },
         });
+        // SELF-HEALING: Check and repair stale subscriptions (due today or in the past)
+        // This addresses "current user situations" by syncing with transaction history on the fly.
+        const today = new Date();
+        today.setHours(0, 0, 0, 0);
+        const staleSubs = subscriptions.filter(sub => {
+            const nextDate = new Date(sub.nextPaymentDate);
+            nextDate.setHours(0, 0, 0, 0);
+            return nextDate <= today;
+        });
+        if (staleSubs.length > 0) {
+            await Promise.all(staleSubs.map(sub => recalculateSubscriptionNextPaymentDate(db_1.prisma, sub.id)));
+            // Refetch subscriptions after repair to return accurate data
+            const updatedSubscriptions = await db_1.prisma.subscription.findMany({
+                where: { userId: req.userId },
+                include: {
+                    category: true,
+                    wallet: true
+                },
+                orderBy: { nextPaymentDate: 'asc' },
+            });
+            return res.json(updatedSubscriptions);
+        }
         res.json(subscriptions);
     }
     catch (error) {
+        console.error('Error fetching subscriptions:', error);
         res.status(500).json({ error: 'Failed to fetch subscriptions' });
     }
 };
@@ -53,24 +79,28 @@ const createSubscription = async (req, res) => {
                     frequency: data.frequency || client_1.SubscriptionFrequency.MONTHLY,
                     status: data.status || client_1.SubscriptionStatus.ACTIVE,
                     startDate,
-                    nextPaymentDate: isInitialPayment ? calculateNextPaymentDate(nextPaymentDate, data.frequency || client_1.SubscriptionFrequency.MONTHLY) : nextPaymentDate,
+                    nextPaymentDate: nextPaymentDate,
                     categoryId: data.categoryId,
                     walletId: data.walletId,
                     note: data.note,
                     userId: req.userId,
                 },
             });
-            // 2. If initial payment, create a transaction
+            // 2. If initial payment, create a transaction and then sync the date
             if (isInitialPayment) {
                 const wallet = await tx.wallet.findUnique({ where: { id: data.walletId } });
-                const { convertedAmount, rate } = await (0, currencyService_1.convertAmount)(data.amount, data.currency, wallet.currency);
-                const description = data.currency !== wallet.currency
-                    ? `Subscription: ${data.name} (${data.amount} ${data.currency} at rate ${rate.toFixed(2)})`
+                if (!wallet)
+                    throw new Error('Wallet not found');
+                const subscriptionCurrency = subscription.currency || 'USD';
+                const { convertedAmount, rate } = await (0, currencyService_1.convertAmount)(data.amount, subscriptionCurrency, wallet.currency);
+                const description = subscriptionCurrency !== wallet.currency
+                    ? `Subscription: ${data.name} (${data.amount} ${subscriptionCurrency} at rate ${rate.toFixed(2)})`
                     : `Subscription: ${data.name}`;
                 await tx.transaction.create({
                     data: {
                         walletId: data.walletId,
                         categoryId: data.categoryId || (await getDefaultCategoryId(req.userId)),
+                        subscriptionId: subscription.id,
                         amount: convertedAmount,
                         type: 'EXPENSE',
                         description,
@@ -82,8 +112,11 @@ const createSubscription = async (req, res) => {
                     where: { id: data.walletId },
                     data: { balance: { decrement: convertedAmount } }
                 });
+                // 4. Sync Next Payment Date based on the transaction we just created
+                await recalculateSubscriptionNextPaymentDate(tx, subscription.id);
             }
-            return subscription;
+            const refreshed = await tx.subscription.findUnique({ where: { id: subscription.id } });
+            return refreshed;
         });
         res.status(201).json(result);
     }
@@ -106,7 +139,12 @@ const updateSubscription = async (req, res) => {
         if (!existing || existing.userId !== req.userId)
             return res.status(404).json({ error: 'Not found' });
         let nextPaymentDate = existing.nextPaymentDate;
-        if (data.frequency || data.startDate) {
+        // 1. If manual nextPaymentDate provided, prioritize it
+        if (data.nextPaymentDate) {
+            nextPaymentDate = new Date(data.nextPaymentDate);
+        }
+        // 2. Otherwise, if frequency or startDate changed, recalculate
+        else if (data.frequency || data.startDate) {
             const start = data.startDate ? new Date(data.startDate) : existing.startDate;
             const freq = data.frequency || existing.frequency;
             nextPaymentDate = calculateNextPaymentDate(start, freq);
@@ -122,7 +160,8 @@ const updateSubscription = async (req, res) => {
         res.json(updated);
     }
     catch (error) {
-        res.status(500).json({ error: 'Failed' });
+        console.error('Error updating subscription:', error);
+        res.status(500).json({ error: 'Failed to update subscription' });
     }
 };
 exports.updateSubscription = updateSubscription;
@@ -161,6 +200,7 @@ const paySubscription = async (req, res) => {
                 data: {
                     walletId: subscription.walletId,
                     categoryId: subscription.categoryId || (await getDefaultCategoryId(req.userId)),
+                    subscriptionId: id,
                     amount: convertedAmount,
                     type: 'EXPENSE',
                     description,
@@ -173,11 +213,8 @@ const paySubscription = async (req, res) => {
                 data: { balance: { decrement: convertedAmount } }
             });
             // 3. Update Next Payment Date
-            const nextDate = calculateNextPaymentDate(new Date(subscription.nextPaymentDate), subscription.frequency);
-            const updated = await tx.subscription.update({
-                where: { id },
-                data: { nextPaymentDate: nextDate }
-            });
+            await recalculateSubscriptionNextPaymentDate(tx, id);
+            const updated = await tx.subscription.findUnique({ where: { id } });
             return updated;
         });
         res.json(result);
@@ -195,17 +232,43 @@ async function getDefaultCategoryId(userId) {
     });
     return category?.id || '';
 }
-function calculateNextPaymentDate(startDate, frequency) {
+async function recalculateSubscriptionNextPaymentDate(tx, subscriptionId) {
+    const sub = await tx.subscription.findUnique({ where: { id: subscriptionId } });
+    if (!sub)
+        return;
+    // Find the latest transaction for this subscription
+    const latestTransaction = await tx.transaction.findFirst({
+        where: { subscriptionId: subscriptionId },
+        orderBy: { date: 'desc' }
+    });
+    let baseDate = sub.startDate;
+    let inclusive = true;
+    if (latestTransaction) {
+        baseDate = latestTransaction.date;
+        inclusive = false; // We want the next one after the latest payment
+    }
+    const nextDate = calculateNextPaymentDate(baseDate, sub.frequency, inclusive);
+    return await tx.subscription.update({
+        where: { id: subscriptionId },
+        data: { nextPaymentDate: nextDate }
+    });
+}
+function calculateNextPaymentDate(startDate, frequency, inclusive = true) {
     const next = new Date(startDate);
+    next.setHours(0, 0, 0, 0); // Normalize to start of day
     const today = new Date();
-    // Set to start of day for comparison
     today.setHours(0, 0, 0, 0);
-    // If start date is in the future, that's the next payment date
-    if (next > today)
-        return next;
-    // Otherwise, find the next occurrence from today
-    // We want the FIRST date that is TODAY or in the FUTURE
-    while (next < today) {
+    // If inclusive is true, we want the FIRST date that is TODAY or in the FUTURE
+    // If inclusive is false, we want the FIRST date that is STRICTLY in the FUTURE
+    if (inclusive) {
+        if (next >= today)
+            return next;
+    }
+    else {
+        if (next > today)
+            return next;
+    }
+    while (inclusive ? next < today : next <= today) {
         switch (frequency) {
             case client_1.SubscriptionFrequency.DAILY:
                 next.setDate(next.getDate() + 1);

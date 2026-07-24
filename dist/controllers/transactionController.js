@@ -2,6 +2,7 @@
 Object.defineProperty(exports, "__esModule", { value: true });
 exports.updateTransaction = exports.deleteTransaction = exports.createTransaction = exports.getTransactions = void 0;
 const db_1 = require("../utils/db");
+const subscriptionController_1 = require("./subscriptionController");
 const zod_1 = require("zod");
 const transactionSchema = zod_1.z.object({
     walletId: zod_1.z.string().uuid(),
@@ -14,10 +15,12 @@ const transactionSchema = zod_1.z.object({
     description: zod_1.z.string().optional(),
     creditId: zod_1.z.string().uuid().optional().nullable(),
     creditAmount: zod_1.z.number().positive().optional().nullable(),
+    subscriptionId: zod_1.z.string().uuid().optional().nullable(),
+    plannedExpenseId: zod_1.z.string().uuid().optional().nullable(),
 });
 const getTransactions = async (req, res) => {
     try {
-        const { walletId, creditId } = req.query;
+        const { walletId, creditId, subscriptionId } = req.query;
         // Ensure the wallet belongs to the user if walletId is provided
         if (walletId) {
             const wallet = await db_1.prisma.wallet.findUnique({ where: { id: String(walletId) } });
@@ -34,28 +37,31 @@ const getTransactions = async (req, res) => {
                 return;
             }
         }
-        const transactions = await db_1.prisma.transaction.findMany({
-            where: creditId
+        // Ensure the subscription belongs to the user if subscriptionId is provided
+        if (subscriptionId) {
+            const subscription = await db_1.prisma.subscription.findUnique({ where: { id: String(subscriptionId) } });
+            if (!subscription || subscription.userId !== req.userId) {
+                res.status(403).json({ error: 'Access denied to this subscription' });
+                return;
+            }
+        }
+        const whereClause = subscriptionId
+            ? { subscriptionId: String(subscriptionId) }
+            : creditId
                 ? { creditId: String(creditId) }
                 : walletId
-                    ? {
-                        OR: [
-                            { walletId: String(walletId) },
-                            { targetWalletId: String(walletId) }
-                        ]
-                    }
-                    : {
-                        OR: [
-                            { wallet: { userId: req.userId } },
-                            { AND: [{ targetWalletId: { not: null } }, { targetWallet: { userId: req.userId } }] }
-                        ]
-                    },
+                    ? { OR: [{ walletId: String(walletId) }, { targetWalletId: String(walletId) }] }
+                    : { OR: [{ wallet: { userId: req.userId } }, { AND: [{ targetWalletId: { not: null } }, { targetWallet: { userId: req.userId } }] }] };
+        const transactions = await db_1.prisma.transaction.findMany({
+            where: whereClause,
             select: {
                 id: true,
                 walletId: true,
                 targetWalletId: true,
                 categoryId: true,
                 transferId: true,
+                subscriptionId: true,
+                plannedExpenseId: true,
                 amount: true,
                 targetAmount: true,
                 type: true,
@@ -139,6 +145,9 @@ const createTransaction = async (req, res) => {
                     data: { balance: { increment: balanceChange } },
                 });
             }
+            if (data.subscriptionId) {
+                await (0, subscriptionController_1.recalculateSubscriptionNextPaymentDate)(tx, data.subscriptionId);
+            }
             return transaction;
         });
         res.status(201).json(result);
@@ -198,6 +207,10 @@ const deleteTransaction = async (req, res) => {
                         remainingAmount: { increment: transaction.creditAmount },
                     },
                 });
+            }
+            // Revert/Sync Subscription nextPaymentDate
+            if (transaction.subscriptionId) {
+                await (0, subscriptionController_1.recalculateSubscriptionNextPaymentDate)(tx, transaction.subscriptionId);
             }
         });
         res.json({ message: 'Transaction deleted successfully' });
@@ -277,6 +290,7 @@ const updateTransaction = async (req, res) => {
             }
             const newCreditId = data.creditId !== undefined ? data.creditId : oldTransaction.creditId;
             const newCreditAmount = data.creditAmount !== undefined ? data.creditAmount : oldTransaction.creditAmount;
+            const newSubscriptionId = data.subscriptionId !== undefined ? data.subscriptionId : oldTransaction.subscriptionId;
             // Handle Credit balance changes
             if (oldTransaction.creditId !== newCreditId || oldTransaction.creditAmount !== newCreditAmount) {
                 // 1. Revert old credit effect if it existed
@@ -305,11 +319,20 @@ const updateTransaction = async (req, res) => {
                 where: { id },
                 data: {
                     ...data,
-                    creditId: newCreditId,
-                    creditAmount: newCreditAmount,
+                    creditId: data.creditId,
+                    creditAmount: data.creditAmount,
+                    subscriptionId: data.subscriptionId,
+                    plannedExpenseId: data.plannedExpenseId,
                     date: data.date ? new Date(data.date) : undefined,
                 },
             });
+            // 4. Sync Subscriptions (handles old/new/date changes)
+            if (oldTransaction.subscriptionId) {
+                await (0, subscriptionController_1.recalculateSubscriptionNextPaymentDate)(tx, oldTransaction.subscriptionId);
+            }
+            if (newSubscriptionId && newSubscriptionId !== oldTransaction.subscriptionId) {
+                await (0, subscriptionController_1.recalculateSubscriptionNextPaymentDate)(tx, newSubscriptionId);
+            }
             return updated;
         });
         res.json(result);

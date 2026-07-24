@@ -24,6 +24,7 @@ model User {
   credits      Credit[]
   budgetPeriods BudgetPeriod[]
   subscriptions Subscription[]
+  plannedExpenses PlannedExpense[]
 }
 
 enum WalletType {
@@ -88,6 +89,7 @@ model Category {
   transactions Transaction[]
   budgets      Budget[]
   subscriptions Subscription[]
+  plannedExpenses PlannedExpense[]
 }
 
 model Transaction {
@@ -101,6 +103,7 @@ model Transaction {
   amount          Float           // Source amount
   targetAmount    Float?          // Target amount (for TRANSFER)
   creditAmount    Float?          // Amount in credit currency (for credit payments)
+  plannedExpenseId String?        // Link to Planned Expense
   type            TransactionType
   date            DateTime        @default(now())
   description     String?
@@ -113,6 +116,7 @@ model Transaction {
   transfer        Transfer?       @relation(fields: [transferId], references: [id], onDelete: Cascade)
   credit          Credit?         @relation(fields: [creditId], references: [id], onDelete: SetNull)
   subscription    Subscription?   @relation(fields: [subscriptionId], references: [id], onDelete: SetNull)
+  plannedExpense  PlannedExpense? @relation(fields: [plannedExpenseId], references: [id], onDelete: SetNull)
 }
 
 model Transfer {
@@ -199,6 +203,23 @@ model Credit {
 
   user            User          @relation(fields: [userId], references: [id], onDelete: Cascade)
   transactions    Transaction[]
+}
+
+model PlannedExpense {
+  id             String        @id @default(uuid())
+  userId         String
+  name           String
+  expectedAmount Float
+  currency       String        @default("USD")
+  categoryId     String
+  dueDay         Int?          // Optional exact day, e.g. 15
+  frequency      SubscriptionFrequency @default(MONTHLY)
+  createdAt      DateTime      @default(now())
+  updatedAt      DateTime      @updatedAt
+
+  user           User          @relation(fields: [userId], references: [id], onDelete: Cascade)
+  category       Category      @relation(fields: [categoryId], references: [id], onDelete: Cascade)
+  transactions   Transaction[]
 }
 
 model Subscription {

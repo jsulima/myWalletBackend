@@ -19,6 +19,7 @@ import transferRoutes from './routes/transferRoutes';
 import currencyRoutes from './routes/currencyRoutes';
 import budgetPeriodRoutes from './routes/budgetPeriodRoutes';
 import subscriptionRoutes from './routes/subscriptionRoutes';
+import plannedExpenseRoutes from './routes/plannedExpenseRoutes';
 
 // Middlewares
 app.use(helmet());
@@ -37,6 +38,7 @@ app.use('/api/transfers', transferRoutes);
 app.use('/api/currency', currencyRoutes);
 app.use('/api/budget-periods', budgetPeriodRoutes);
 app.use('/api/subscriptions', subscriptionRoutes);
+app.use('/api/planned-expenses', plannedExpenseRoutes);
 
 // Basic route
 app.get('/health', (req, res) => {

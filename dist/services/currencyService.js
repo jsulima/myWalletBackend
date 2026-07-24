@@ -3,7 +3,7 @@ var __importDefault = (this && this.__importDefault) || function (mod) {
     return (mod && mod.__esModule) ? mod : { "default": mod };
 };
 Object.defineProperty(exports, "__esModule", { value: true });
-exports.convertAmount = exports.fetchCurrencyRates = void 0;
+exports.getUSDRatesMap = exports.convertAmount = exports.fetchCurrencyRates = void 0;
 const axios_1 = __importDefault(require("axios"));
 let cachedRates = [];
 let lastFetchTime = 0;
@@ -76,3 +76,21 @@ const convertAmount = async (amount, from, to) => {
     };
 };
 exports.convertAmount = convertAmount;
+const getUSDRatesMap = async () => {
+    const rates = await (0, exports.fetchCurrencyRates)();
+    const map = { 'USD': 1 };
+    // Extract all rates that have to: 'USD'
+    rates.forEach(r => {
+        if (r.to === 'USD') {
+            map[r.from] = r.rate;
+        }
+    });
+    // If some are missing (e.g. we only have r.from === 'USD'), calculate inverse
+    rates.forEach(r => {
+        if (r.from === 'USD' && !map[r.to]) {
+            map[r.to] = 1 / r.rate;
+        }
+    });
+    return map;
+};
+exports.getUSDRatesMap = getUSDRatesMap;
