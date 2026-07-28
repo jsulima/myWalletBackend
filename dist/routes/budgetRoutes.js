@@ -9,4 +9,5 @@ router.get('/', budgetController_1.getBudgets);
 router.post('/', budgetController_1.createBudget);
 router.put('/:id', budgetController_1.updateBudget);
 router.delete('/:id', budgetController_1.deleteBudget);
+router.get('/analytics/:categoryId', budgetController_1.getCategoryAnalytics);
 exports.default = router;

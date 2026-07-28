@@ -1,8 +1,9 @@
 "use strict";
 Object.defineProperty(exports, "__esModule", { value: true });
-exports.deleteBudget = exports.updateBudget = exports.createBudget = exports.getBudgets = void 0;
+exports.getCategoryAnalytics = exports.deleteBudget = exports.updateBudget = exports.createBudget = exports.getBudgets = void 0;
 const db_1 = require("../utils/db");
 const zod_1 = require("zod");
+const currencyService_1 = require("../services/currencyService");
 const budgetSchema = zod_1.z.object({
     categoryId: zod_1.z.string().uuid(),
     limit: zod_1.z.number().positive(),
@@ -117,3 +118,117 @@ const deleteBudget = async (req, res) => {
     }
 };
 exports.deleteBudget = deleteBudget;
+const getCategoryAnalytics = async (req, res) => {
+    try {
+        const categoryId = String(req.params.categoryId);
+        // Verify category exists and belongs to user's data
+        const category = await db_1.prisma.category.findUnique({ where: { id: categoryId } });
+        if (!category) {
+            res.status(404).json({ error: 'Category not found' });
+            return;
+        }
+        // Fetch all budgets for this category belonging to the user
+        const budgets = await db_1.prisma.budget.findMany({
+            where: { userId: req.userId, categoryId },
+            include: { period: true },
+            orderBy: { startDate: 'asc' },
+        });
+        if (budgets.length === 0) {
+            res.json({
+                category: { id: category.id, name: category.name, color: category.color },
+                dataPoints: [],
+                summary: { totalPeriods: 0, avgSpent: 0, avgLimit: 0, trend: 'neutral' },
+            });
+            return;
+        }
+        const ratesMap = await (0, currencyService_1.getUSDRatesMap)();
+        // Collect all transactions for this category belonging to the user
+        const allTransactions = await db_1.prisma.transaction.findMany({
+            where: {
+                categoryId,
+                type: 'EXPENSE',
+                wallet: { userId: req.userId },
+            },
+            include: { wallet: true },
+            orderBy: { date: 'asc' },
+        });
+        // Build data points — one per budget record
+        const dataPoints = budgets.map((budget) => {
+            const start = new Date(budget.startDate);
+            const end = new Date(budget.endDate);
+            const txInRange = allTransactions.filter((t) => {
+                const d = new Date(t.date);
+                return d >= start && d <= end;
+            });
+            const spentUSD = txInRange.reduce((sum, t) => {
+                const rate = ratesMap[t.wallet.currency] || 1;
+                return sum + t.amount * rate;
+            }, 0);
+            const limitUSD = budget.limit * (ratesMap[budget.currency] || 1);
+            // Label: period name if in a period, otherwise date range
+            let label;
+            if (budget.period) {
+                label = budget.period.name;
+            }
+            else {
+                label = `${start.toLocaleDateString('uk-UA', { month: 'short', year: '2-digit' })}`;
+            }
+            return {
+                budgetId: budget.id,
+                periodId: budget.periodId || null,
+                periodName: budget.period?.name || null,
+                label,
+                startDate: budget.startDate,
+                endDate: budget.endDate,
+                status: budget.status,
+                limitUSD: Math.round(limitUSD * 100) / 100,
+                spentUSD: Math.round(spentUSD * 100) / 100,
+                transactionCount: txInRange.length,
+                percentage: limitUSD > 0 ? Math.round((spentUSD / limitUSD) * 100) : 0,
+                isOver: spentUSD > limitUSD,
+            };
+        });
+        // Summary statistics
+        const finishedPoints = dataPoints.filter((p) => p.status === 'FINISHED' || p.status === 'ACTIVE');
+        const totalPeriods = dataPoints.length;
+        const avgSpent = finishedPoints.length > 0
+            ? finishedPoints.reduce((s, p) => s + p.spentUSD, 0) / finishedPoints.length
+            : 0;
+        const avgLimit = finishedPoints.length > 0
+            ? finishedPoints.reduce((s, p) => s + p.limitUSD, 0) / finishedPoints.length
+            : 0;
+        // Trend: compare last 2 finished periods
+        let trend = 'neutral';
+        if (finishedPoints.length >= 2) {
+            const last = finishedPoints[finishedPoints.length - 1];
+            const prev = finishedPoints[finishedPoints.length - 2];
+            if (last.spentUSD > prev.spentUSD * 1.05)
+                trend = 'up';
+            else if (last.spentUSD < prev.spentUSD * 0.95)
+                trend = 'down';
+        }
+        const bestPoint = finishedPoints.reduce((best, p) => (!best || p.percentage < best.percentage) ? p : best, null);
+        const worstPoint = finishedPoints.reduce((worst, p) => (!worst || p.percentage > worst.percentage) ? p : worst, null);
+        res.json({
+            category: {
+                id: category.id,
+                name: category.name,
+                color: category.color,
+            },
+            dataPoints,
+            summary: {
+                totalPeriods,
+                avgSpent: Math.round(avgSpent * 100) / 100,
+                avgLimit: Math.round(avgLimit * 100) / 100,
+                trend,
+                bestPeriod: bestPoint ? { label: bestPoint.label, percentage: bestPoint.percentage } : null,
+                worstPeriod: worstPoint ? { label: worstPoint.label, percentage: worstPoint.percentage } : null,
+            },
+        });
+    }
+    catch (error) {
+        console.error('Get Category Analytics Error:', error);
+        res.status(500).json({ error: 'Failed to fetch category analytics' });
+    }
+};
+exports.getCategoryAnalytics = getCategoryAnalytics;
