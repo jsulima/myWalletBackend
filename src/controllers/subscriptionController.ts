@@ -37,7 +37,7 @@ export const getSubscriptions = async (req: AuthRequest, res: Response) => {
     const staleSubs = subscriptions.filter(sub => {
         const nextDate = new Date(sub.nextPaymentDate);
         nextDate.setHours(0, 0, 0, 0);
-        return nextDate <= today;
+        return nextDate < today;
     });
 
     if (staleSubs.length > 0) {
