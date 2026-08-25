@@ -20,10 +20,64 @@ const creditSchema = z.object({
 
 export const getCredits = async (req: AuthRequest, res: Response) => {
   try {
-    const credits = await prisma.credit.findMany({ where: { userId: req.userId } });
+    const rawCredits = await prisma.credit.findMany({ where: { userId: req.userId } });
+    
+    const credits = rawCredits.map(credit => {
+      const remaining = credit.remainingAmount ?? 0;
+      const total = credit.totalAmount;
+      const paidPercentage = total > 0 ? ((total - remaining) / total) * 100 : 0;
+      
+      const isOverdue = credit.dueDate ? new Date(credit.dueDate) < new Date() : false;
+      const isClosed = credit.status === 'CLOSED';
+      
+      const interestAmount = isClosed ? (credit.commission || 0) : Math.max(0, credit.paidAmount - total);
+      
+      let estimatedPayoffMonths = 0;
+      if (credit.monthlyPayment > 0 && remaining > 0) {
+        estimatedPayoffMonths = Math.ceil(remaining / credit.monthlyPayment);
+      }
+
+      return {
+        ...credit,
+        paidPercentage,
+        isOverdue,
+        isClosed,
+        interestAmount,
+        estimatedPayoffMonths
+      };
+    });
+
     res.json(credits);
   } catch (error) {
     res.status(500).json({ error: 'Failed to fetch credits' });
+  }
+};
+
+export const getCreditSummary = async (req: AuthRequest, res: Response) => {
+  try {
+    const activeCredits = await prisma.credit.findMany({
+      where: { userId: req.userId, status: 'ACTIVE' }
+    });
+
+    const debtByCurrency: Record<string, number> = {};
+    const monthlyByCurrency: Record<string, number> = {};
+
+    activeCredits.forEach(credit => {
+      const cur = credit.currency || 'USD';
+      if (!debtByCurrency[cur]) debtByCurrency[cur] = 0;
+      if (!monthlyByCurrency[cur]) monthlyByCurrency[cur] = 0;
+
+      debtByCurrency[cur] += Math.max(0, credit.remainingAmount ?? 0);
+      monthlyByCurrency[cur] += credit.monthlyPayment ?? 0;
+    });
+
+    res.json({
+      activeCount: activeCredits.length,
+      debtByCurrency,
+      monthlyByCurrency
+    });
+  } catch (error) {
+    res.status(500).json({ error: 'Failed to fetch credit summary' });
   }
 };
 
