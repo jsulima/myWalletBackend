@@ -35,6 +35,7 @@ export const getSubscriptions = async (req: AuthRequest, res: Response) => {
     today.setHours(0, 0, 0, 0);
 
     const staleSubs = subscriptions.filter(sub => {
+        if (sub.status !== SubscriptionStatus.ACTIVE) return false;
         const nextDate = new Date(sub.nextPaymentDate);
         nextDate.setHours(0, 0, 0, 0);
         return nextDate < today;
@@ -161,6 +162,10 @@ export const updateSubscription = async (req: AuthRequest, res: Response) => {
         const start = data.startDate ? new Date(data.startDate) : existing.startDate;
         const freq = data.frequency || existing.frequency;
         nextPaymentDate = calculateNextPaymentDate(start, freq);
+    }
+    // 3. If resuming an inactive subscription to ACTIVE and date is in the past, roll forward
+    else if (data.status === SubscriptionStatus.ACTIVE && existing.status !== SubscriptionStatus.ACTIVE) {
+        nextPaymentDate = calculateNextPaymentDate(existing.startDate, existing.frequency);
     }
 
     const updated = await prisma.subscription.update({
