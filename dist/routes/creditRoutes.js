@@ -6,6 +6,7 @@ const authMiddleware_1 = require("../middlewares/authMiddleware");
 const router = (0, express_1.Router)();
 router.use(authMiddleware_1.authenticate);
 router.get('/', creditController_1.getCredits);
+router.get('/summary', creditController_1.getCreditSummary);
 router.post('/', creditController_1.createCredit);
 router.put('/:id', creditController_1.updateCredit);
 router.delete('/:id', creditController_1.deleteCredit);

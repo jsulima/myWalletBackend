@@ -1,6 +1,6 @@
 "use strict";
 Object.defineProperty(exports, "__esModule", { value: true });
-exports.payCredit = exports.deleteCredit = exports.updateCredit = exports.createCredit = exports.getCredits = void 0;
+exports.payCredit = exports.deleteCredit = exports.updateCredit = exports.createCredit = exports.getCreditSummary = exports.getCredits = void 0;
 const db_1 = require("../utils/db");
 const zod_1 = require("zod");
 const currencyService_1 = require("../services/currencyService");
@@ -18,7 +18,27 @@ const creditSchema = zod_1.z.object({
 });
 const getCredits = async (req, res) => {
     try {
-        const credits = await db_1.prisma.credit.findMany({ where: { userId: req.userId } });
+        const rawCredits = await db_1.prisma.credit.findMany({ where: { userId: req.userId } });
+        const credits = rawCredits.map(credit => {
+            const remaining = credit.remainingAmount ?? 0;
+            const total = credit.totalAmount;
+            const paidPercentage = total > 0 ? ((total - remaining) / total) * 100 : 0;
+            const isOverdue = credit.dueDate ? new Date(credit.dueDate) < new Date() : false;
+            const isClosed = credit.status === 'CLOSED';
+            const interestAmount = isClosed ? (credit.commission || 0) : Math.max(0, credit.paidAmount - total);
+            let estimatedPayoffMonths = 0;
+            if (credit.monthlyPayment > 0 && remaining > 0) {
+                estimatedPayoffMonths = Math.ceil(remaining / credit.monthlyPayment);
+            }
+            return {
+                ...credit,
+                paidPercentage,
+                isOverdue,
+                isClosed,
+                interestAmount,
+                estimatedPayoffMonths
+            };
+        });
         res.json(credits);
     }
     catch (error) {
@@ -26,6 +46,33 @@ const getCredits = async (req, res) => {
     }
 };
 exports.getCredits = getCredits;
+const getCreditSummary = async (req, res) => {
+    try {
+        const activeCredits = await db_1.prisma.credit.findMany({
+            where: { userId: req.userId, status: 'ACTIVE' }
+        });
+        const debtByCurrency = {};
+        const monthlyByCurrency = {};
+        activeCredits.forEach(credit => {
+            const cur = credit.currency || 'USD';
+            if (!debtByCurrency[cur])
+                debtByCurrency[cur] = 0;
+            if (!monthlyByCurrency[cur])
+                monthlyByCurrency[cur] = 0;
+            debtByCurrency[cur] += Math.max(0, credit.remainingAmount ?? 0);
+            monthlyByCurrency[cur] += credit.monthlyPayment ?? 0;
+        });
+        res.json({
+            activeCount: activeCredits.length,
+            debtByCurrency,
+            monthlyByCurrency
+        });
+    }
+    catch (error) {
+        res.status(500).json({ error: 'Failed to fetch credit summary' });
+    }
+};
+exports.getCreditSummary = getCreditSummary;
 const createCredit = async (req, res) => {
     try {
         const data = creditSchema.parse(req.body);
